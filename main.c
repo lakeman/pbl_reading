@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "lib.h"
 #include "debug.h"
+#include "class.h"
 
 void __assert_fail(const char * assertion, const char * file, unsigned int line, const char * function) {
     fprintf(stderr, "Assert: (%s) failed at %s:%d in function %s\n", assertion, file, line, function);
@@ -27,7 +28,9 @@ int main(int argc, const char **argv){
     lib_enumerate(lib, callback, NULL);
     if (argc>=3){
       DEBUGF("Finding...");
-      lib_find(lib, argv[2]);
+      struct lib_entry *entry = lib_find(lib, argv[2]);
+      struct class_group *class_group = class_parse(entry);
+      class_free(class_group);
     }
     DEBUGF("Closing...");
     lib_close(lib);

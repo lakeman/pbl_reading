@@ -269,7 +269,7 @@ size_t lib_entry_read(struct lib_entry *entry, uint8_t *buffer, size_t len){
 
   if (!ent->dat){
 
-    if (!ent->remaining)
+    if (!ent->pub.length)
       return 0;
 
     ent->dat = pool_alloc_struct(ent->lib->pool, struct dat);
@@ -279,7 +279,7 @@ size_t lib_entry_read(struct lib_entry *entry, uint8_t *buffer, size_t len){
     assert(ent->start_offset);
     lseek(ent->lib->fd, ent->start_offset, SEEK_SET);
     read(ent->lib->fd, ent->dat, sizeof(struct dat));
-
+    ent->remaining = ent->pub.length;
     assert(strncmp(ent->dat->type, DAT, 4)==0);
     assert(ent->remaining >= ent->dat->length);
     // skip the file comment
@@ -300,6 +300,7 @@ size_t lib_entry_read(struct lib_entry *entry, uint8_t *buffer, size_t len){
 
       ent->block_offset += remain;
       bytes_read += remain;
+
     } else if(!ent->remaining) {
       break;
     } else {
@@ -314,5 +315,6 @@ size_t lib_entry_read(struct lib_entry *entry, uint8_t *buffer, size_t len){
     }
   }
 
+  //DUMP(buffer, bytes_read);
   return bytes_read;
 }

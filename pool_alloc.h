@@ -18,6 +18,8 @@ const char *pool_dup_u(struct pool *pool, const UChar *str);
 const char *pool_dupn(struct pool *pool, const char *str, size_t len);
 const char *pool_dupn_u(struct pool *pool, const UChar *str, size_t len);
 
-#define pool_alloc_struct(P, T) (T *) pool_alloc((P), sizeof(T), offsetof( struct { char x; T dummy; }, dummy))
+#define alignment_of(T) offsetof( struct { char x; T dummy; }, dummy)
+
+#define pool_alloc_struct(P, T) (T *) pool_alloc((P), sizeof(T), alignment_of(T))
 
 #endif
