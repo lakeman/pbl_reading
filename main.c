@@ -15,12 +15,21 @@ void callback(struct lib_entry *entry, void *UNUSED(context)){
 }
 
 int main(int argc, const char **argv){
-  assert(argc>=1);
+  if (argc<2){
+    DEBUGF("Usage %s \"filename\" [\"Object name\"]", argv[0]);
+    return 0;
+  }
+
   struct library *lib = lib_open(argv[1]);
   if (lib){
     DEBUGF("opened %s (%s, comment %s)", lib->filename, lib->unicode?"unicode":"ansi", lib->comment);
+    DEBUGF("Enumerating...");
     lib_enumerate(lib, callback, NULL);
-    lib_find(lib, argv[2]);
+    if (argc>=3){
+      DEBUGF("Finding...");
+      lib_find(lib, argv[2]);
+    }
+    DEBUGF("Closing...");
     lib_close(lib);
   }
   return 0;

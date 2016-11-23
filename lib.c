@@ -16,6 +16,7 @@ struct library_private;
 struct lib_entry_private{
   struct lib_entry pub;
   struct library_private *lib;
+  struct lib_entry_private *next;
   uint32_t start_offset;
   uint16_t comment_len;
   struct dat *dat;
@@ -30,6 +31,7 @@ struct directory{
   struct nod *nod;
   const char *first;
   const char *last;
+  struct lib_entry_private *first_ent;
 };
 
 struct library_private{
@@ -149,11 +151,79 @@ static struct directory * dir_right(struct library_private *lib, struct director
   return dir->right;
 }
 
+static void read_ents(struct library_private *lib, struct directory *dir){
+  read_dir(lib, dir);
+  if (!dir->nod->no_entries || dir->first_ent)
+    return;
+
+  struct lib_entry_private **ptr = &dir->first_ent;
+  uint8_t *data = dir->nod->ent_start;
+  unsigned index;
+
+  for(index=0; index < dir->nod->no_entries; index++){
+    struct lib_entry_private *entry = (*ptr) = pool_alloc_struct(lib->pool, struct lib_entry_private);
+    memset(entry, sizeof(struct lib_entry_private), 0);
+    ptr = &entry->next;
+
+    entry->lib = lib;
+    if (lib->pub.unicode){
+      struct ent_u *ent = (struct ent_u *)data;
+      assert(strncmp(ent->type, ENT, 4)==0);
+
+      //DUMP(data, sizeof(struct ent_u) + ent->name_len);
+      data += sizeof(struct ent_u);
+
+      entry->pub.name=pool_dupn_u(lib->pool, (UChar *)data, ent->name_len -2);
+      entry->pub.length=ent->length;
+      entry->pub.timestamp=ent->timestamp;
+      entry->start_offset=ent->first_block;
+      entry->comment_len=ent->comment_len;
+
+      data += ent->name_len;
+    }else{
+      struct ent_a *ent = (struct ent_a *)data;
+      assert(strncmp(ent->type, ENT, 4)==0);
+      data += sizeof(struct ent_a);
+
+      //DUMP(data, sizeof(struct ent_a) + ent->name_len);
+      entry->pub.name=(char *)data;
+      entry->pub.length=ent->length;
+      entry->pub.timestamp=ent->timestamp;
+      entry->start_offset=ent->first_block;
+      entry->comment_len=ent->comment_len;
+
+      data += ent->name_len;
+    }
+    //DEBUGF("Parsed ent %s @%lx", entry->pub.name, (data - dir->nod->raw) + dir->offset);
+    assert(data - dir->nod->raw < (long)sizeof(*dir->nod));
+  }
+}
+
+static void read_ent_comment(struct lib_entry_private *ent){
+  if (!ent->comment_len || ent->pub.comment)
+    return;
+  lseek(ent->lib->fd, ent->start_offset, SEEK_SET);
+  struct dat dat;
+  read(ent->lib->fd, &dat, sizeof(dat));
+  assert(strncmp(dat.type, DAT, 4)==0);
+  if (ent->lib->pub.unicode){
+    ent->pub.comment = pool_dupn_u(ent->lib->pool, (UChar*)dat.data, ent->comment_len);
+  }else{
+    ent->pub.comment = pool_dupn(ent->lib->pool, (char*)dat.data, ent->comment_len);
+  }
+}
+
 static void dir_enum(struct library_private *lib, struct directory *dir, entry_callback callback, void *context){
   if (!dir)
     return;
   dir_enum(lib, dir_left(lib, dir), callback, context);
-  DEBUGF("TODO enum from %s to %s", dir->first, dir->last);
+  read_ents(lib, dir);
+  struct lib_entry_private *entry = dir->first_ent;
+  while(entry){
+    read_ent_comment(entry);
+    callback((struct lib_entry *)entry, context);
+    entry = entry->next;
+  }
   dir_enum(lib, dir_right(lib, dir), callback, context);
 }
 
@@ -174,7 +244,16 @@ struct lib_entry *lib_find(struct library *library, const char *entry_name){
     }else if(strcmp(entry_name, dir->last)>0){
       dir = dir_right(lib, dir);
     }else{
-      DEBUGF("TODO locate ENT* of %s between %s && %s", entry_name, dir->first, dir->last);
+      struct lib_entry_private *entry = dir->first_ent;
+      while(entry){
+	if (strcmp(entry->pub.name, entry_name)==0){
+	  DEBUGF("Found %s", entry_name);
+	  read_ent_comment(entry);
+	  return (struct lib_entry *)entry;
+	}
+	entry = entry->next;
+      }
+      DEBUGF("%s NOT FOUND", entry_name);
       return NULL;
     }
   }
@@ -195,9 +274,17 @@ size_t lib_entry_read(struct lib_entry *entry, uint8_t *buffer, size_t len){
 
     ent->dat = pool_alloc_struct(ent->lib->pool, struct dat);
     assert(ent->dat);
-    // setup so that we read the next block
-    ent->dat->next_offset = ent->start_offset;
-    ent->dat->length = 0;
+    // read the first block
+
+    assert(ent->start_offset);
+    lseek(ent->lib->fd, ent->start_offset, SEEK_SET);
+    read(ent->lib->fd, ent->dat, sizeof(struct dat));
+
+    assert(strncmp(ent->dat->type, DAT, 4)==0);
+    assert(ent->remaining >= ent->dat->length);
+    // skip the file comment
+    ent->block_offset = ent->comment_len;
+    ent->remaining -= ent->dat->length;
   }
 
   size_t bytes_read = 0;
