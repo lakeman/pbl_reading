@@ -45,7 +45,7 @@ struct library_private{
 
 struct library *lib_open(const char *filename){
   int fd = open(filename, O_RDONLY);
-  DEBUGF("open(%s, O_RDONLY) = %d", filename, fd);
+  DEBUGF(LIB, "open(%s, O_RDONLY) = %d", filename, fd);
   if (fd<0)
     return NULL;
 
@@ -78,7 +78,7 @@ struct library *lib_open(const char *filename){
   // use a single memory pool for the lifetime of the library struct.
   // se we can duplicate string buffers, and quickly throw them all away when we're done
   struct pool *pool = pool_create();
-  struct library_private *lib = pool_alloc_struct(pool, struct library_private);
+  struct library_private *lib = pool_alloc_type(pool, struct library_private);
   memset(&lib->root, sizeof(lib->root), 0);
   lib->pool = pool;
   lib->fd = fd;
@@ -115,7 +115,7 @@ static void read_dir(struct library_private *lib, struct directory *dir){
   if (dir->nod)
     return;
 
-  dir->nod = pool_alloc_struct(lib->pool, struct nod);
+  dir->nod = pool_alloc_type(lib->pool, struct nod);
   lseek(lib->fd, dir->offset, SEEK_SET);
   read(lib->fd, dir->nod, sizeof(struct nod));
   assert(strncmp(dir->nod->type, NOD, 4)==0);
@@ -134,7 +134,7 @@ static void read_dir(struct library_private *lib, struct directory *dir){
 static struct directory * dir_left(struct library_private *lib, struct directory *dir){
   read_dir(lib, dir);
   if (!dir->left && dir->nod->left_offset){
-    dir->left = pool_alloc_struct(lib->pool, struct directory);
+    dir->left = pool_alloc_type(lib->pool, struct directory);
     memset(dir->left, sizeof(struct directory), 0);
     dir->left->offset = dir->nod->left_offset;
   }
@@ -144,7 +144,7 @@ static struct directory * dir_left(struct library_private *lib, struct directory
 static struct directory * dir_right(struct library_private *lib, struct directory *dir){
   read_dir(lib, dir);
   if (!dir->right && dir->nod->right_offset){
-    dir->right = pool_alloc_struct(lib->pool, struct directory);
+    dir->right = pool_alloc_type(lib->pool, struct directory);
     memset(dir->right, sizeof(struct directory), 0);
     dir->right->offset = dir->nod->right_offset;
   }
@@ -161,7 +161,7 @@ static void read_ents(struct library_private *lib, struct directory *dir){
   unsigned index;
 
   for(index=0; index < dir->nod->no_entries; index++){
-    struct lib_entry_private *entry = (*ptr) = pool_alloc_struct(lib->pool, struct lib_entry_private);
+    struct lib_entry_private *entry = (*ptr) = pool_alloc_type(lib->pool, struct lib_entry_private);
     memset(entry, sizeof(struct lib_entry_private), 0);
     ptr = &entry->next;
 
@@ -194,7 +194,7 @@ static void read_ents(struct library_private *lib, struct directory *dir){
 
       data += ent->name_len;
     }
-    //DEBUGF("Parsed ent %s @%lx", entry->pub.name, (data - dir->nod->raw) + dir->offset);
+    //DEBUGF(LIB, "Parsed ent %s @%lx", entry->pub.name, (data - dir->nod->raw) + dir->offset);
     assert(data - dir->nod->raw < (long)sizeof(*dir->nod));
   }
 }
@@ -247,17 +247,17 @@ struct lib_entry *lib_find(struct library *library, const char *entry_name){
       struct lib_entry_private *entry = dir->first_ent;
       while(entry){
 	if (strcmp(entry->pub.name, entry_name)==0){
-	  DEBUGF("Found %s", entry_name);
+	  DEBUGF(LIB, "Found %s", entry_name);
 	  read_ent_comment(entry);
 	  return (struct lib_entry *)entry;
 	}
 	entry = entry->next;
       }
-      DEBUGF("%s NOT FOUND", entry_name);
+      DEBUGF(LIB, "%s NOT FOUND", entry_name);
       return NULL;
     }
   }
-  DEBUGF("%s NOT FOUND", entry_name);
+  DEBUGF(LIB, "%s NOT FOUND", entry_name);
   return NULL;
 }
 
@@ -272,7 +272,7 @@ size_t lib_entry_read(struct lib_entry *entry, uint8_t *buffer, size_t len){
     if (!ent->pub.length)
       return 0;
 
-    ent->dat = pool_alloc_struct(ent->lib->pool, struct dat);
+    ent->dat = pool_alloc_type(ent->lib->pool, struct dat);
     assert(ent->dat);
     // read the first block
 
@@ -315,6 +315,6 @@ size_t lib_entry_read(struct lib_entry *entry, uint8_t *buffer, size_t len){
     }
   }
 
-  //DUMP(buffer, bytes_read);
+  DUMP(RAWREAD, buffer, bytes_read);
   return bytes_read;
 }

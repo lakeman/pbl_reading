@@ -135,7 +135,7 @@ struct pbscript_list{
 struct pbscript_short_header{
   uint16_t method_id;
   uint16_t method_number;
-  uint16_t type;
+  uint16_t type; // type it is implemented in?
 };
 
 struct pbscript_header{

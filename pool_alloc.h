@@ -20,6 +20,7 @@ const char *pool_dupn_u(struct pool *pool, const UChar *str, size_t len);
 
 #define alignment_of(T) offsetof( struct { char x; T dummy; }, dummy)
 
-#define pool_alloc_struct(P, T) (T *) pool_alloc((P), sizeof(T), alignment_of(T))
+#define pool_alloc_type(P, T) (T *) pool_alloc((P), sizeof(T), alignment_of(T))
+#define pool_alloc_array(P, T, C) (T *) pool_alloc((P), sizeof(T)*C, alignment_of(T))
 
 #endif

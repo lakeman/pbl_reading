@@ -29,10 +29,10 @@ static void init(struct pool *pool, struct buffer *b){
 struct pool *pool_create(){
   struct pool *pool = malloc(BLOCK_SIZE);
   assert(pool);
-  DEBUGF("malloc() = %p", pool);
+  DEBUGF(ALLOC,"malloc() = %p", pool);
   init(pool, &pool->first);
   pool->first.remaining = BLOCK_SIZE - sizeof(struct pool);
-  //DEBUGF("Created pool @%p, remaining %zu", pool, pool->current->remaining);
+  //DEBUGF(ALLOC,"Created pool @%p, remaining %zu", pool, pool->current->remaining);
   return pool;
 }
 
@@ -40,10 +40,10 @@ void pool_release(struct pool *pool){
   while(pool->first.next){
     struct buffer *t = pool->first.next;
     pool->first.next = pool->first.next->next;
-    DEBUGF("Free %p", t);
+    DEBUGF(ALLOC,"Free %p", t);
     free(t);
   }
-  DEBUGF("Free %p", pool);
+  DEBUGF(ALLOC,"Free %p", pool);
   free(pool);
 }
 
@@ -60,7 +60,7 @@ void *pool_alloc(struct pool *pool, size_t size, unsigned alignment){
 
     if (size > pool->current->remaining){
       struct buffer *b = malloc(BLOCK_SIZE);
-      DEBUGF("malloc() = %p", b);
+      DEBUGF(ALLOC,"malloc() = %p", b);
       assert(b);
       pool->current->next = b;
       init(pool, b);
@@ -70,7 +70,7 @@ void *pool_alloc(struct pool *pool, size_t size, unsigned alignment){
 
     pool->current->current+=size;
     pool->current->remaining-=size;
-    //DEBUGF("pool_alloc(%p, %zu, %u) = %p, [from %p, remaining %zu]", pool, size, alignment, ret, pool->current, pool->current->remaining);
+    //DEBUGF(ALLOC,"pool_alloc(%p, %zu, %u) = %p, [from %p, remaining %zu]", pool, size, alignment, ret, pool->current, pool->current->remaining);
     return ret;
   }
 }
@@ -102,7 +102,7 @@ const char *pool_dupn_u(struct pool *pool, const UChar *str, size_t len){
   int32_t dst_len=0;
   u_strToUTF8(NULL, 0, &dst_len, str, len/2, &status);
   if (dst_len==0){
-    DEBUGF("Failed to measure unicode string?");
+    DEBUGF(ALLOC,"Failed to measure unicode string?");
     return NULL;
   }
   status = U_ZERO_ERROR;
@@ -121,7 +121,7 @@ const char *pool_dup_u(struct pool *pool, const UChar *str){
   int32_t len=0;
   u_strToUTF8(NULL, 0, &len, str, -1, &status);
   if (len==0){
-    DEBUGF("Failed to measure unicode string?");
+    DEBUGF(ALLOC,"Failed to measure unicode string?");
     return NULL;
   }
   status = U_ZERO_ERROR;

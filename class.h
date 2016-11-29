@@ -18,13 +18,12 @@ struct enumeration{
 
 struct script_definition{
   struct script_definition *next;
-
+  const char *name;
 };
 
 struct class_definition{
   struct class_definition *next;
   struct script_definition *scripts;
-
 };
 
 struct class_group{
