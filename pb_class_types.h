@@ -54,13 +54,13 @@ struct pbfile_header{
   uint16_t compiler_version;
   uint16_t format_version;
   uint16_t pb_type;
-  uint16_t padding1;
-  uint16_t padding2;
-  uint16_t padding3;
+  uint16_t unnamed1;
+  uint16_t unnamed2;
+  uint16_t unnamed3;
   uint32_t timestamp1;
   uint32_t timestamp2;
   uint16_t compilation_state;
-  uint16_t padding4;
+  uint16_t unnamed4;
 };
 
 struct pbtable_info{
@@ -85,7 +85,7 @@ struct pbvalue{
 
 struct pbtype_def{
   uint16_t flags;
-  uint16_t padding1;
+  uint16_t unnamed1;
   uint32_t array_dimensions;
   uint32_t name_offset;
   struct pbvalue value;
@@ -97,8 +97,8 @@ struct pbtype_header{
   uint16_t enum_count;
   uint16_t type2;
   // If version >= PB6 (114)
-  uint32_t padding1;
-  uint32_t padding2;
+  uint32_t unnamed1;
+  uint32_t unnamed2;
   // end if
 };
 
@@ -108,14 +108,14 @@ struct pbclass_header{
   uint16_t script_count;
   uint16_t ancestor_method_count;
   uint16_t script_something_count;
-  uint16_t padding1;
-  uint16_t padding2;
-  uint16_t padding3;
+  uint16_t unnamed1;
+  uint16_t unnamed2;
+  uint16_t unnamed3;
   uint16_t method_count;
   uint16_t function_count;
   uint16_t event_count;
   uint16_t something_count;
-  uint16_t padding4;
+  uint16_t unnamed4;
   uint16_t indirect_count;
   uint16_t variable_count;
   uint16_t ancestor_variable_count;
@@ -124,7 +124,7 @@ struct pbclass_header{
 struct pbenum_value{
   uint32_t name_offset;
   uint16_t value;
-  uint16_t padding;
+  uint16_t unnamed;
 };
 
 struct pbscript_list{
@@ -149,16 +149,16 @@ struct pbscript_header{
   uint16_t method_id;
   uint16_t method_number;
   uint16_t system_function;
-  uint16_t padding1;
+  uint16_t unnamed1;
   uint16_t return_type;
   uint16_t flags;
   uint16_t event_id;
   uint16_t throws;
   // If version >= PB6 (114)
-  uint16_t padding2;
-  uint16_t padding3;
-  uint16_t padding4;
-  uint16_t padding5;
+  uint16_t unnamed2;
+  uint16_t unnamed3;
+  uint16_t unnamed4;
+  uint16_t unnamed5;
   // end if
   // If version >= PB8 (166)
   uint32_t throws_offset;
@@ -169,9 +169,9 @@ struct pbindirect_ref{
   uint32_t name_offset;
   uint32_t arg_list_offset;
   uint16_t arg_count;
-  uint16_t padding1;
+  uint16_t unnamed1;
   // If version >= PB6 (114)
-  uint32_t padding2;
+  uint32_t unnamed2;
   // end if
 };
 

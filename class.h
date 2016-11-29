@@ -16,8 +16,6 @@ struct enumeration{
   struct enum_value values[0];
 };
 
-// some kind of common value def struct for variables / return values??
-
 struct variable_definition{
   struct variable_definition *next;
   const char *read_access;
@@ -25,35 +23,34 @@ struct variable_definition{
   const char *type;
   const char *name;
   const char *dimensions;
-  // type
-  // array definition
+  // TODO indirect variables
 };
 
 struct script_definition{
+  struct script_definition *next;
   const char *name;
   const char *signature;
   const char *external_name;
   const char *library;
-  struct script_definition *next;
-  // return type
-  // arguments
+  // TODO return type, argument list
   struct variable_definition *local_variables;
 };
 
 struct class_definition{
+  struct class_definition *next;
   const char *name;
   const char *ancestor;
   const char *parent;
-  struct class_definition *next;
   struct script_definition *scripts;
   struct variable_definition *instance_variables;
+  // TODO initial values
 };
 
 struct class_group{
-  // referenced types...?
   struct enumeration *enumerations;
   struct class_definition *classes;
   struct variable_definition *global_variables;
+  // TODO type references
 };
 
 struct lib_entry;

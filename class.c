@@ -67,7 +67,6 @@ struct class_group_private{
   struct data_table arguments_table;
   struct type_defs type_list; // main type list
   struct type_defs enum_values;
-  // TODO variable length parsing based on version!
   struct pbtype_header *type_headers;
 };
 

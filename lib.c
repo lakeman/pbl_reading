@@ -50,6 +50,7 @@ struct library *lib_open(const char *filename){
     return NULL;
 
   // TODO look for a TRL block first
+
   off_t header_offset = 0;
 
   lseek(fd, header_offset, SEEK_SET);
