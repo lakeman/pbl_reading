@@ -43,7 +43,7 @@ enum pbtype{
   pbvalue_datetime,
   pbvalue_cursor,	// undocumented
   pbvalue_procedure,	// undocumented
-  pbvalue_dummy3,
+  pbvalue_placeholder,  // undocumented && unknown
   pbvalue_char,
   pbvalue_objhandle,	// undocumented
   pbvalue_longlong,
@@ -71,10 +71,10 @@ struct pbtable_info{
 
 struct pbext_reference{
   uint32_t name_offset;
-  uint16_t padding1;
+  uint16_t unnamed1;
   uint16_t system_type;
   uint16_t type;
-  uint16_t padding2;
+  uint16_t unnamed2;
 };
 
 struct pbvalue{
@@ -145,7 +145,7 @@ struct pbscript_header{
   // end if
   uint32_t arguments_offset;
   uint32_t alias_offset;
-  uint32_t external_name_offset;
+  uint32_t library_offset;
   uint16_t method_id;
   uint16_t method_number;
   uint16_t system_function;
