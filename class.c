@@ -144,7 +144,7 @@ static const char *get_table_string(struct class_group_private *class_group, str
 
 static const char *get_type_name(struct class_group_private *class_group, uint16_t type){
   if (type==0 || type == 0xC000)
-    return "[VOID]";
+    return NULL;
   if (type & 0x4000){
     // cheating a bit, look for the first external reference to this type
     unsigned i;
@@ -203,19 +203,21 @@ static void debug_type_names(const char *heading, struct class_group_private *cl
   unsigned i;
   DEBUGF(PARSE, "Type list %s", heading);
   for (i=0;i<type_defs->count;i++){
-    DEBUGF(PARSE, "Type[%u] %s %s [%04x, %04x]", i,
+    DEBUGF(PARSE, "Type[%u] %s %s [%08x, %04x, %04x, %04x]", i,
       get_type_name(class_group, type_defs->types[i].value.type),
       type_defs->names[i],
+      type_defs->types[i].value.value,
       type_defs->types[i].flags,
+      type_defs->types[i].unnamed1,
       type_defs->types[i].value.flags);
   }
 }
 
-const char *access_names[]={"","private","protected","system"};
+const char *access_names[]={NULL,"private","protected","system"};
 
 static const char *get_dimensions_str(struct class_group_private *class_group, const int32_t *dimensions){
   if (!dimensions)
-    return "";
+    return NULL;
 
   unsigned count = (unsigned)(*dimensions++ & 0x3FFF);
   if (count==0 || (dimensions[0]==0 && dimensions[1]==0)){
@@ -261,6 +263,10 @@ static struct variable_definition* type_defs_to_variables(struct class_group_pri
     variables[i].pub.read_access = access_names[(type_defs->types[i].flags >> 4)&3];
     variables[i].pub.write_access = access_names[(type_defs->types[i].flags >> 6)&3];
 
+    variables[i].pub.user_defined = (type_defs->types[i].value.flags & 0x200)?1:0;
+    variables[i].pub.constant = (type_defs->types[i].flags & 0x04)?1:0;
+    // 0x0004 autoinstantiate?
+    // 0x1000 long?
     variables[i].dimensions = get_table_ptr(class_group, &type_defs->table, type_defs->types[i].array_dimensions);
     variables[i].pub.dimensions = get_dimensions_str(class_group, variables[i].dimensions);
   }
@@ -272,10 +278,12 @@ static void build_arg_list(struct class_group_private *class_group, struct scrip
   script_def->arguments = (struct pbarg_def*)get_table_ptr(class_group, &class_group->arguments_table, script_def->header->arguments_offset);
   script_def->argument_info = get_table_info(class_group, &class_group->arguments_table, script_def->header->arguments_offset);
 
-  if (!script_def->argument_info)
+  if (!script_def->argument_info){
+    script_def->pub.argument_count=0;
     return;
+  }
 
-  unsigned count = script_def->argument_info->count;
+  unsigned count = script_def->pub.argument_count = script_def->argument_info->count;
   struct arg_def_private *args = pool_alloc_array(class_group->pool, struct arg_def_private, count);
   memset(args, sizeof(struct arg_def_private)*count, 0);
 
@@ -289,8 +297,10 @@ static void build_arg_list(struct class_group_private *class_group, struct scrip
 	args[i].pub.access = "ref";
 	break;
       case 0x04:
+	// ...
 	args[i].pub.type = "...";
-	break;
+	// at the end of the arg list, by definition
+	return;
       case 0x06:
 	args[i].pub.access = "readonly";
 	break;
@@ -352,7 +362,9 @@ struct class_group *class_parse(struct lib_entry *entry){
 
   read_type_defs(entry, class_group, &class_group->type_list);
 
+  class_group->pub.global_variable_count = class_group->global_types.count;
   class_group->pub.global_variables = type_defs_to_variables(class_group, &class_group->global_types);
+
   debug_type_names("globals", class_group, &class_group->global_types);
 
   if (class_group->type_list.count>0 && DEBUG_PARSE){
@@ -445,9 +457,11 @@ struct class_group *class_parse(struct lib_entry *entry){
       class_def->pub.name = get_type_name(class_group, class_group->type_headers[i].type);
       class_def->pub.ancestor = get_type_name(class_group, cls_header->ancestor_type);
       class_def->pub.parent = get_type_name(class_group, cls_header->parent_type);
+      class_def->pub.autoinstantiate = class_def->type_header->flags & 0x0100?1:0;
 
-      DEBUGF(PARSE, "Class %u = %s (type %04x, ancestor %s, parent %s)", i,
+      DEBUGF(PARSE, "Class %u = %s (flags %04x, type %04x, ancestor %s, parent %s)", i,
 	class_def->pub.name,
+	class_group->type_headers[i].flags,
 	class_group->type_headers[i].type,
 	get_type_name(class_group, cls_header->ancestor_type),
 	get_type_name(class_group, cls_header->parent_type));
@@ -514,6 +528,7 @@ struct class_group *class_parse(struct lib_entry *entry){
       debug_type_names("method returns?", class_group, &class_def->variables);
       read_expecting(entry, expect5, 3);
       read_type_defs(entry, class_group, &class_def->instance_variables);
+      class_def->pub.instance_variable_count = class_def->instance_variables.count;
       class_def->pub.instance_variables = type_defs_to_variables(class_group, &class_def->instance_variables);
       debug_type_names("instance variables", class_group, &class_def->instance_variables);
       DEBUGF(PARSE, "All initial instance values");
@@ -553,8 +568,12 @@ struct class_group *class_parse(struct lib_entry *entry){
 	script_def->header = &script_headers[k];
 	if (index < implemented_count && implementations[index].number == short_headers[l].method_number){
 	  script_def->body = &implementations[index++];
+	  script_def->pub.implemented = 1;
+	  script_def->pub.local_variable_count = class_def->instance_variables.count;
 	  script_def->pub.local_variables = type_defs_to_variables(class_group, &script_def->body->local_variables);
 	}else{
+	  script_def->pub.implemented = 0;
+	  script_def->pub.local_variable_count = 0;
 	  script_def->body = NULL;
 	  script_def->pub.local_variables = NULL;
 	}
@@ -563,6 +582,13 @@ struct class_group *class_parse(struct lib_entry *entry){
 	if (script_headers[k].flags & 0x0600)
 	  script_def->pub.library = get_table_string(class_group, &class_group->function_name_table, script_headers[k].library_offset);
 	script_def->pub.external_name = get_table_string(class_group, &class_group->function_name_table, script_headers[k].alias_offset);
+	script_def->pub.return_type = get_type_name(class_group, script_headers[k].return_type);
+	script_def->pub.access = access_names[(script_headers[k].flags>>12)&3];
+	script_def->pub.event = (script_headers[k].flags & 0x0100)?1:0;
+	script_def->pub.hidden = (script_headers[k].throws & 1)?1:0;
+	script_def->pub.system = (script_headers[k].flags & 0x0200)?1:0;
+	script_def->pub.rpc = (script_headers[k].flags & 0x0800)?1:0;
+
 	build_arg_list(class_group, script_def);
       }
       (*script_ptr) = NULL;
