@@ -48,6 +48,7 @@ void pool_release(struct pool *pool){
 }
 
 void *pool_alloc(struct pool *pool, size_t size, unsigned alignment){
+  DEBUGF(ALLOC, "Allocating %zu", size);
   assert(size <= BLOCK_SIZE - sizeof(struct buffer));
   while(1){
     void *ret = pool->current->current;

@@ -26,6 +26,14 @@ struct variable_definition{
   // TODO indirect variables
 };
 
+struct argument_definition{
+  struct argument_definition *next;
+  const char *access;
+  const char *type;
+  const char *name;
+  const char *dimensions;
+};
+
 struct script_definition{
   struct script_definition *next;
   const char *name;
@@ -34,6 +42,7 @@ struct script_definition{
   const char *library;
   // TODO return type, argument list
   struct variable_definition *local_variables;
+  struct argument_definition *arguments;
 };
 
 struct class_definition{

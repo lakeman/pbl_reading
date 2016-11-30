@@ -9,14 +9,14 @@
 struct data_table{
   uint32_t data_length;
   unsigned metadata_count;
-  uint8_t *data;
-  struct pbtable_info *metadata;
+  const uint8_t *data;
+  const struct pbtable_info *metadata;
 };
 
 struct type_defs{
   struct data_table table;
   unsigned count;
-  struct pbtype_def *types;
+  const struct pbtype_def *types;
   const char **names;
 };
 
@@ -25,31 +25,38 @@ struct variable_def_private{
   const int32_t *dimensions;
 };
 
+struct arg_def_private{
+  struct argument_definition pub;
+  const int32_t *dimensions;
+};
+
 struct script_implementation{
   uint16_t number;
   uint16_t code_size;
-  uint8_t *code;
+  const uint8_t *code;
   uint16_t debugline_count;
-  struct pbdebug_line_num *debug_lines;
+  const struct pbdebug_line_num *debug_lines;
   struct type_defs local_variables;
   struct data_table references;
 };
 
 struct script_def_private{
   struct script_definition pub;
-  struct pbscript_short_header *short_header;
-  struct pbscript_header *header;
+  const struct pbscript_short_header *short_header;
+  const struct pbscript_header *header;
   struct script_implementation *body;
+  const struct pbarg_def *arguments;
+  const struct pbtable_info *argument_info;
 };
 
 struct class_def_private{
   struct class_definition pub;
-  struct pbtype_header *type_header;
-  struct pbclass_header *header;
+  const struct pbtype_header *type_header;
+  const struct pbclass_header *header;
   struct type_defs variables; //? better name ?
   struct type_defs instance_variables;
-  struct pbvalue *instance_values;
-  struct pbindirect_ref *indirect_refs;
+  const struct pbvalue *instance_values;
+  const struct pbindirect_ref *indirect_refs;
 };
 
 struct class_group_private{
@@ -57,7 +64,7 @@ struct class_group_private{
   struct pool *pool;
   struct pbfile_header header;
   uint16_t ext_ref_count;
-  struct pbext_reference *external_refs;
+  const struct pbext_reference *external_refs;
   struct data_table main_table;
   const char **ref_names;
   struct type_defs global_types;
@@ -67,7 +74,7 @@ struct class_group_private{
   struct data_table arguments_table;
   struct type_defs type_list; // main type list
   struct type_defs enum_values;
-  struct pbtype_header *type_headers;
+  const struct pbtype_header *type_headers;
 };
 
 #define read_type(E,S) assert(lib_entry_read(E, (uint8_t *)&S, sizeof S)==sizeof S)
@@ -110,6 +117,23 @@ static const void *get_table_ptr(struct class_group_private *class_group, struct
 
   assert(offset < table->data_length);
   return &table->data[offset];
+}
+
+static const struct pbtable_info *get_table_info(struct class_group_private *class_group, struct data_table *table, uint32_t offset){
+  if (offset & 0x80000000){
+    table = &class_group->main_table;
+    offset = offset & ~0x80000000;
+  }
+
+  if (offset == 0xFFFF)
+    return NULL;
+  assert(offset < table->data_length);
+  // TODO binary search?
+  unsigned i;
+  for (i=0;i<table->metadata_count;i++)
+    if (table->metadata[i].offset == offset)
+      return &table->metadata[i];
+  return NULL;
 }
 
 static const char *get_table_string(struct class_group_private *class_group, struct data_table *table, uint32_t offset){
@@ -189,6 +213,40 @@ static void debug_type_names(const char *heading, struct class_group_private *cl
 
 const char *access_names[]={"","private","protected","system"};
 
+static const char *get_dimensions_str(struct class_group_private *class_group, const int32_t *dimensions){
+  if (!dimensions)
+    return "";
+
+  unsigned count = (unsigned)(*dimensions++ & 0x3FFF);
+  if (count==0 || (dimensions[0]==0 && dimensions[1]==0)){
+    // shortcut for auto-bound (likely to be common)
+    return "[]";
+  }
+  unsigned j;
+  char buff[256], *dst = buff;
+  *dst++='[';
+  for (j=0;j<count;j++){
+    int32_t lower = *dimensions++;
+    int32_t upper = *dimensions++;
+    assert(lower<=upper);
+
+    if (lower==0 && upper==0)
+      break;
+    if (j>0){
+      *dst++=',';*dst++=' ';
+    }
+
+    if (lower==1){
+      dst += sprintf(dst, "%d",upper);
+    }else{
+      dst += sprintf(dst, "%d to %d", lower, upper);
+    }
+  }
+  *dst++=']';
+  *dst++=0;
+  return pool_dup(class_group->pool, buff);
+}
+
 // not all type lists are variables
 static struct variable_definition* type_defs_to_variables(struct class_group_private *class_group, struct type_defs *type_defs){
   if (type_defs->count==0)
@@ -203,42 +261,47 @@ static struct variable_definition* type_defs_to_variables(struct class_group_pri
     variables[i].pub.read_access = access_names[(type_defs->types[i].flags >> 4)&3];
     variables[i].pub.write_access = access_names[(type_defs->types[i].flags >> 6)&3];
 
-    const int32_t *ptr = variables[i].dimensions = get_table_ptr(class_group, &type_defs->table, type_defs->types[i].array_dimensions);
-    if (ptr){
-      unsigned count = (unsigned)(*ptr++ & 0x3FFF);
-      if (count==0 || (ptr[0]==0 && ptr[1]==0)){
-	// shortcut for auto-bound (likely to be common)
-	variables[i].pub.dimensions = "[]";
-      }else{
-	unsigned j;
-	char buff[256], *dst = buff;
-	*dst++='[';
-	for (j=0;j<count;j++){
-	  int32_t lower = *ptr++;
-	  int32_t upper = *ptr++;
-	  assert(lower<=upper);
-
-	  if (lower==0 && upper==0)
-	    break;
-	  if (j>0){
-	    *dst++=',';*dst++=' ';
-	  }
-
-	  if (lower==1){
-	    dst += sprintf(dst, "%d",upper);
-	  }else{
-	    dst += sprintf(dst, "%d to %d", lower, upper);
-	  }
-	}
-	*dst++=']';
-	*dst++=0;
-	variables[i].pub.dimensions = pool_dup(class_group->pool, buff);
-      }
-    }else{
-      variables[i].pub.dimensions = "";
-    }
+    variables[i].dimensions = get_table_ptr(class_group, &type_defs->table, type_defs->types[i].array_dimensions);
+    variables[i].pub.dimensions = get_dimensions_str(class_group, variables[i].dimensions);
   }
   return &variables->pub;
+}
+
+static void build_arg_list(struct class_group_private *class_group, struct script_def_private *script_def){
+  script_def->pub.signature = get_table_string(class_group, &class_group->arguments_table, script_def->header->signature_offset);
+  script_def->arguments = (struct pbarg_def*)get_table_ptr(class_group, &class_group->arguments_table, script_def->header->arguments_offset);
+  script_def->argument_info = get_table_info(class_group, &class_group->arguments_table, script_def->header->arguments_offset);
+
+  if (!script_def->argument_info)
+    return;
+
+  unsigned count = script_def->argument_info->count;
+  struct arg_def_private *args = pool_alloc_array(class_group->pool, struct arg_def_private, count);
+  memset(args, sizeof(struct arg_def_private)*count, 0);
+
+  script_def->pub.arguments = (struct argument_definition *)args;
+  unsigned i;
+  for (i=0;i<count;i++){
+    args[i].pub.next = (i+1<count)?&args[i+1].pub:NULL;
+
+    switch(script_def->arguments[i].flags & 0x0E){
+      case 0x02:
+	args[i].pub.access = "ref";
+	break;
+      case 0x04:
+	args[i].pub.type = "...";
+	break;
+      case 0x06:
+	args[i].pub.access = "readonly";
+	break;
+    }
+
+    args[i].pub.name = get_table_string(class_group, &class_group->function_name_table, script_def->arguments[i].name_offset);
+    args[i].pub.type = get_type_name(class_group, script_def->arguments[i].type);
+
+    args[i].dimensions = get_table_ptr(class_group, &class_group->function_name_table, script_def->arguments[i].array_dimensions);
+    args[i].pub.dimensions = get_dimensions_str(class_group, args[i].dimensions);
+  }
 }
 
 static void read_expecting(struct lib_entry *entry, const uint16_t *expect, unsigned count){
@@ -377,7 +440,7 @@ struct class_group *class_parse(struct lib_entry *entry){
       class_ptr = &class_def->pub.next;
 
       class_def->type_header = &class_group->type_headers[i];
-      struct pbclass_header *cls_header = class_def->header = &class_headers[j++];
+      const struct pbclass_header *cls_header = class_def->header = &class_headers[j++];
 
       class_def->pub.name = get_type_name(class_group, class_group->type_headers[i].type);
       class_def->pub.ancestor = get_type_name(class_group, cls_header->ancestor_type);
@@ -488,20 +551,19 @@ struct class_group *class_parse(struct lib_entry *entry){
 	assert(script_def);
 
 	script_def->header = &script_headers[k];
-	if (implementations[index].number == short_headers[l].method_number){
+	if (index < implemented_count && implementations[index].number == short_headers[l].method_number){
 	  script_def->body = &implementations[index++];
 	  script_def->pub.local_variables = type_defs_to_variables(class_group, &script_def->body->local_variables);
 	}else{
 	  script_def->body = NULL;
 	  script_def->pub.local_variables = NULL;
-	  assert(implementations[index].number > short_headers[l].method_number);
 	}
 
 	script_def->pub.name = get_table_string(class_group, &class_group->function_name_table, script_headers[k].name_offset);
-	script_def->pub.signature = get_table_string(class_group, &class_group->arguments_table, script_headers[k].signature_offset);
 	if (script_headers[k].flags & 0x0600)
 	  script_def->pub.library = get_table_string(class_group, &class_group->function_name_table, script_headers[k].library_offset);
 	script_def->pub.external_name = get_table_string(class_group, &class_group->function_name_table, script_headers[k].alias_offset);
+	build_arg_list(class_group, script_def);
       }
       (*script_ptr) = NULL;
       assert(index == implemented_count);

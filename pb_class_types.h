@@ -91,6 +91,13 @@ struct pbtype_def{
   struct pbvalue value;
 };
 
+struct pbarg_def{
+  uint32_t name_offset;
+  uint32_t array_dimensions;
+  uint16_t type;
+  uint16_t flags;
+};
+
 struct pbtype_header{
   uint16_t flags;
   uint16_t type;

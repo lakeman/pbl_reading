@@ -130,6 +130,8 @@ static void read_dir(struct library_private *lib, struct directory *dir){
       dir->last = (const char *)&dir->nod->raw[dir->nod->last_name];
     }
   }
+  DEBUGF(LIB, "Read dir @%x, %u entries (first %s, last %s)",
+    dir->offset, dir->nod->no_entries, dir->first, dir->last);
 }
 
 static struct directory * dir_left(struct library_private *lib, struct directory *dir){
@@ -138,6 +140,7 @@ static struct directory * dir_left(struct library_private *lib, struct directory
     dir->left = pool_alloc_type(lib->pool, struct directory);
     memset(dir->left, sizeof(struct directory), 0);
     dir->left->offset = dir->nod->left_offset;
+    DEBUGF(LIB, "Init left @%x",dir->left->offset);
   }
   return dir->left;
 }
@@ -148,6 +151,7 @@ static struct directory * dir_right(struct library_private *lib, struct director
     dir->right = pool_alloc_type(lib->pool, struct directory);
     memset(dir->right, sizeof(struct directory), 0);
     dir->right->offset = dir->nod->right_offset;
+    DEBUGF(LIB, "Init right @%x",dir->right->offset);
   }
   return dir->right;
 }
@@ -198,6 +202,7 @@ static void read_ents(struct library_private *lib, struct directory *dir){
     //DEBUGF(LIB, "Parsed ent %s @%lx", entry->pub.name, (data - dir->nod->raw) + dir->offset);
     assert(data - dir->nod->raw < (long)sizeof(*dir->nod));
   }
+  DEBUGF(LIB, "Read ent's for dir @%x",dir->offset);
 }
 
 static void read_ent_comment(struct lib_entry_private *ent){
@@ -245,6 +250,7 @@ struct lib_entry *lib_find(struct library *library, const char *entry_name){
     }else if(strcmp(entry_name, dir->last)>0){
       dir = dir_right(lib, dir);
     }else{
+      read_ents(lib, dir);
       struct lib_entry_private *entry = dir->first_ent;
       while(entry){
 	if (strcmp(entry->pub.name, entry_name)==0){
