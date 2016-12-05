@@ -160,7 +160,8 @@ struct pbscript_header{
   uint16_t return_type;
   uint16_t flags;
   uint16_t event_id;
-  uint16_t throws;
+  uint8_t more_flags;
+  uint8_t throws_count;
   // If version >= PB6 (114)
   uint16_t unnamed2;
   uint16_t unnamed3;

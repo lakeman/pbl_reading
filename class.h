@@ -46,6 +46,8 @@ struct script_definition{
   struct variable_definition **local_variables;
   unsigned argument_count;
   struct argument_definition **arguments;
+  unsigned throws_count;
+  const char **throws;
   uint8_t event:1;
   uint8_t hidden:1;
   uint8_t system:1;

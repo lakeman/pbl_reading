@@ -98,6 +98,14 @@ static void write_method_header(FILE *fd, struct script_definition *script){
       fprintf(fd, "%s", arg->dimensions);
   }
   fprintf(fd,")");
+
+  for (i=0; i<script->throws_count; i++){
+    if (i==0)
+      fprintf(fd, " throws %s", script->throws[i]);
+    else
+      fprintf(fd, ", %s", script->throws[i]);
+  }
+
   if (script->rpc)
     fprintf(fd, " rpcfunc");
   if (script->library){

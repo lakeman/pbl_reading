@@ -47,6 +47,7 @@ struct script_def_private{
   const struct pbscript_header *header;
   const struct pbarg_def *arguments;
   const struct pbtable_info *argument_info;
+  const uint16_t *throw_types;
 };
 
 struct class_def_private{
@@ -601,9 +602,17 @@ struct class_group *class_parse(struct lib_entry *entry){
 	script_def->pub.return_type = get_type_name(class_group, script_headers[k].return_type);
 	script_def->pub.access = access_names[(script_headers[k].flags>>12)&3];
 	script_def->pub.event = (script_headers[k].flags & 0x0100)?1:0;
-	script_def->pub.hidden = (script_headers[k].throws & 1)?1:0;
+	script_def->pub.hidden = (script_headers[k].more_flags & 1)?1:0;
 	script_def->pub.system = (script_headers[k].flags & 0x0200)?1:0;
 	script_def->pub.rpc = (script_headers[k].flags & 0x0800)?1:0;
+
+	script_def->pub.throws_count = script_headers[k].throws_count;
+	script_def->pub.throws = pool_alloc_array(class_group->pool, const char *, script_def->pub.throws_count+1);
+	script_def->throw_types = get_table_ptr(class_group, &class_group->function_name_table, script_headers[k].throws_offset);
+
+	for (l=0;l<script_def->pub.throws_count;l++)
+	  script_def->pub.throws[l] = get_type_name(class_group, script_def->throw_types[l]);
+	script_def->pub.throws[script_def->pub.throws_count]=NULL;
 
 	build_arg_list(class_group, script_def);
       }
