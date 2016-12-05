@@ -1,5 +1,6 @@
 #include "output.h"
 #include "class.h"
+#include "debug.h"
 
 static void write_variable(FILE *fd, struct variable_definition *variable){
   if (variable->read_access || variable->write_access){
@@ -8,7 +9,7 @@ static void write_variable(FILE *fd, struct variable_definition *variable){
     }else{
       if (variable->read_access)
 	fprintf(fd, "%sread ", variable->read_access);
-      if (variable->read_access)
+      if (variable->write_access)
 	fprintf(fd, "%swrite ", variable->write_access);
     }
   }
@@ -20,30 +21,29 @@ static void write_variable(FILE *fd, struct variable_definition *variable){
   fprintf(fd, "\n");
 }
 
-static void write_variables(FILE *fd, int user_defined, const char *type, struct variable_definition *variable){
+static void write_variables(FILE *fd, int user_defined, const char *type, struct variable_definition *variable[]){
   if (!variable)
     return;
   int found = 0;
-  while(variable){
-    if (variable->user_defined == user_defined){
+  unsigned i;
+  for (i=0;variable[i];i++){
+    if (variable[i]->user_defined == user_defined){
       if (!found){
 	found = 1;
 	if (type)
 	  fprintf(fd, "%s variables\n", type);
       }
-      write_variable(fd, variable);
+      write_variable(fd, variable[i]);
     }
-    variable = variable->next;
   }
 
   if (found && type)
     fprintf(fd, "end variables\n\n");
 }
 
-static void write_type_dec(FILE *fd, struct class_definition *class_def){
+static void write_type_dec(FILE *fd, const char *name, struct class_definition *class_def){
   // global?
-
-  fprintf(fd, "type %s from %s", class_def->name, class_def->ancestor);
+  fprintf(fd, "type %s from %s", name, class_def->ancestor);
   if (class_def->parent)
     fprintf(fd, " within %s", class_def->parent);
   if (class_def->autoinstantiate)
@@ -52,13 +52,14 @@ static void write_type_dec(FILE *fd, struct class_definition *class_def){
 }
 
 static void write_forward(FILE *fd, struct class_group *group){
-  struct class_definition *class_def = group->classes;
   fprintf(fd, "forward\n");
   // TODO this probably isn't quite right for nested classes, eg menu's
-  while(class_def){
-    write_type_dec(fd, class_def);
-    fprintf(fd, "end type\n");
-    class_def = class_def->next;
+  unsigned i;
+  for (i=0;i<group->type_count;i++){
+    if (group->types[i].type == class_type){
+      write_type_dec(fd, group->types[i].name, group->types[i].class_definition);
+      fprintf(fd, "end type\n");
+    }
   }
   write_variables(fd, 0, NULL, group->global_variables);
   fprintf(fd, "end forward\n\n");
@@ -83,10 +84,11 @@ static void write_method_header(FILE *fd, struct script_definition *script){
       script->access?script->access:"public",
       script->name);
   }
-  struct argument_definition *arg = script->arguments;
-  while(arg){
-    if (arg!=script->arguments)
+  unsigned i;
+  for(i=0; i<script->argument_count; i++){
+    if (i>0)
       fprintf(fd, ", ");
+    struct argument_definition *arg = script->arguments[i];
     if (arg->access)
       fprintf(fd, "%s ", arg->access);
     fprintf(fd, "%s", arg->type);
@@ -94,7 +96,6 @@ static void write_method_header(FILE *fd, struct script_definition *script){
       fprintf(fd, " %s", arg->name);
     if (arg->dimensions)
       fprintf(fd, "%s", arg->dimensions);
-    arg = arg->next;
   }
   fprintf(fd,")");
   if (script->rpc)
@@ -109,10 +110,10 @@ static void write_method_header(FILE *fd, struct script_definition *script){
 }
 
 static void write_prototypes(FILE *fd, int external, struct class_definition *class_def){
-  struct script_definition *script = class_def->scripts;
   int found=0;
-  
-  while(script){
+  unsigned i;
+  for (i=0;class_def->scripts[i];i++){
+    struct script_definition *script = class_def->scripts[i];
     if (!script->event && external == (script->library ? 1:0)){
       if (!found){
 	fprintf(fd, "%s prototypes\n", external?"type":"forward");
@@ -121,23 +122,21 @@ static void write_prototypes(FILE *fd, int external, struct class_definition *cl
       write_method_header(fd, script);
       fprintf(fd,"\n");
     }
-    script=script->next;
   }
   if (found)
     fprintf(fd, "end prototypes\n\n");
 }
 
-static void write_class(FILE *fd, struct class_definition *class_def){
-  write_type_dec(fd, class_def);
+static void write_class(FILE *fd, const char *name, struct class_definition *class_def){
+  write_type_dec(fd, name, class_def);
   write_variables(fd, 0, NULL, class_def->instance_variables);
 
-  struct script_definition *script = class_def->scripts;
-  while(script){
-    if (script->event){
-      write_method_header(fd, script);
+  unsigned i;
+  for (i=0;class_def->scripts[i];i++){
+    if (class_def->scripts[i]->event){
+      write_method_header(fd, class_def->scripts[i]);
       fprintf(fd,"\n");
     }
-    script=script->next;
   }
 
   fprintf(fd, "end type\n\n");
@@ -147,17 +146,13 @@ static void write_class(FILE *fd, struct class_definition *class_def){
   write_variables(fd, 1, "type", class_def->instance_variables);
   write_prototypes(fd, 0, class_def);
 
-  script = class_def->scripts;
-  while(script){
+  for (i=0;class_def->scripts[i];i++){
+    struct script_definition *script = class_def->scripts[i];
     if (script->implemented){
       write_method_header(fd, script);
       fprintf(fd, ";");
-      struct variable_definition *variable = script->local_variables;
       // skip arguments
-      unsigned i;
-      for(i=0;variable && i<script->argument_count;i++)
-	variable = variable->next;
-      write_variables(fd, 0, NULL, variable);
+      write_variables(fd, 0, NULL, script->local_variables + script->argument_count);
       if (script->event)
 	fprintf(fd, "\nend event\n\n");
       else if(script->return_type)
@@ -165,9 +160,7 @@ static void write_class(FILE *fd, struct class_definition *class_def){
       else
 	fprintf(fd, "\nend subroutine\n\n");
     }
-    script=script->next;
   }
-
 }
 
 void write_group(FILE *fd, struct class_group *group){
@@ -177,9 +170,9 @@ void write_group(FILE *fd, struct class_group *group){
   // this works, but it's not exactly right...
   write_variables(fd, 0, "global", group->global_variables);
 
-  struct class_definition *class_def = group->classes;
-  while(class_def){
-    write_class(fd, class_def);
-    class_def = class_def->next;
+  unsigned i;
+  for (i=0;i<group->type_count;i++){
+    if (group->types[i].type == class_type)
+      write_class(fd, group->types[i].name, group->types[i].class_definition);
   }
 }

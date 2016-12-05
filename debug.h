@@ -12,6 +12,7 @@ void _dump(const char *file, int line, const uint8_t *data, size_t len, unsigned
 #define DEBUG_ALLOC 0
 #define DEBUG_RAWREAD 0
 #define DEBUG_PARSE 0
+#define DEBUG_OUTPUT 0
 
 #define DEBUGF(TYPE, FMT, ...) if (DEBUG_ ## TYPE) fprintf(stderr, "%s:%u " #TYPE " - " FMT "\n", __FILE__, __LINE__, ##__VA_ARGS__)
 #define DUMP(TYPE, B, L) if (DEBUG_ ## TYPE) _dump(__FILE__,__LINE__,(uint8_t*)(B),(L),16,1)

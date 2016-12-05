@@ -42,9 +42,9 @@ struct script_implementation{
 
 struct script_def_private{
   struct script_definition pub;
+  struct script_implementation *body;
   const struct pbscript_short_header *short_header;
   const struct pbscript_header *header;
-  struct script_implementation *body;
   const struct pbarg_def *arguments;
   const struct pbtable_info *argument_info;
 };
@@ -68,7 +68,6 @@ struct class_group_private{
   struct data_table main_table;
   const char **ref_names;
   struct type_defs global_types;
-  uint16_t type_count;
   uint16_t class_count;
   struct data_table function_name_table;
   struct data_table arguments_table;
@@ -79,6 +78,7 @@ struct class_group_private{
 
 #define read_type(E,S) assert(lib_entry_read(E, (uint8_t *)&S, sizeof S)==sizeof S)
 
+// allocate and read bytes
 static void* read_block(struct lib_entry *entry, struct class_group_private *class_group, size_t length){
   if (length==0)
     return NULL;
@@ -88,6 +88,7 @@ static void* read_block(struct lib_entry *entry, struct class_group_private *cla
 }
 
 #define read_array(E,CD,S,C) read_block(E,CD,S*C)
+// read bytes into array, based on compiled defined sizes
 #define read_type_array(E,CL,S,C) S=read_array(E,CL,sizeof(*S),C)
 
 static void read_table(struct lib_entry *entry, struct class_group_private *class_group, struct data_table *table){
@@ -215,6 +216,7 @@ static void debug_type_names(const char *heading, struct class_group_private *cl
 
 const char *access_names[]={NULL,"private","protected","system"};
 
+// shift this?
 static const char *get_dimensions_str(struct class_group_private *class_group, const int32_t *dimensions){
   if (!dimensions)
     return NULL;
@@ -250,14 +252,15 @@ static const char *get_dimensions_str(struct class_group_private *class_group, c
 }
 
 // not all type lists are variables
-static struct variable_definition* type_defs_to_variables(struct class_group_private *class_group, struct type_defs *type_defs){
+static struct variable_definition** type_defs_to_variables(struct class_group_private *class_group, struct type_defs *type_defs){
   if (type_defs->count==0)
     return NULL;
 
+  struct variable_definition **pointers = pool_alloc_array(class_group->pool, struct variable_definition*, type_defs->count+1);
   struct variable_def_private *variables = pool_alloc_array(class_group->pool, struct variable_def_private, type_defs->count);
   unsigned i;
   for (i=0;i<type_defs->count;i++){
-    variables[i].pub.next = (i+1<type_defs->count)?&variables[i+1].pub : NULL;
+    pointers[i] = &variables[i].pub;
     variables[i].pub.name = type_defs->names[i];
     variables[i].pub.type = get_type_name(class_group, type_defs->types[i].value.type);
     variables[i].pub.read_access = access_names[(type_defs->types[i].flags >> 4)&3];
@@ -270,7 +273,8 @@ static struct variable_definition* type_defs_to_variables(struct class_group_pri
     variables[i].dimensions = get_table_ptr(class_group, &type_defs->table, type_defs->types[i].array_dimensions);
     variables[i].pub.dimensions = get_dimensions_str(class_group, variables[i].dimensions);
   }
-  return &variables->pub;
+  pointers[type_defs->count] = NULL;
+  return pointers;
 }
 
 static void build_arg_list(struct class_group_private *class_group, struct script_def_private *script_def){
@@ -284,13 +288,14 @@ static void build_arg_list(struct class_group_private *class_group, struct scrip
   }
 
   unsigned count = script_def->pub.argument_count = script_def->argument_info->count;
+  struct argument_definition **pointers = pool_alloc_array(class_group->pool, struct argument_definition *, count+1);
   struct arg_def_private *args = pool_alloc_array(class_group->pool, struct arg_def_private, count);
   memset(args, sizeof(struct arg_def_private)*count, 0);
 
-  script_def->pub.arguments = (struct argument_definition *)args;
+  script_def->pub.arguments = pointers;
   unsigned i;
   for (i=0;i<count;i++){
-    args[i].pub.next = (i+1<count)?&args[i+1].pub:NULL;
+    pointers[i] = &args[i].pub;
 
     switch(script_def->arguments[i].flags & 0x0E){
       case 0x02:
@@ -312,6 +317,7 @@ static void build_arg_list(struct class_group_private *class_group, struct scrip
     args[i].dimensions = get_table_ptr(class_group, &class_group->function_name_table, script_def->arguments[i].array_dimensions);
     args[i].pub.dimensions = get_dimensions_str(class_group, args[i].dimensions);
   }
+  pointers[count] = NULL;
 }
 
 static void read_expecting(struct lib_entry *entry, const uint16_t *expect, unsigned count){
@@ -350,9 +356,12 @@ struct class_group *class_parse(struct lib_entry *entry){
 
   read_type_defs(entry, class_group, &class_group->global_types);
 
-  read_type(entry, class_group->type_count);
+  uint16_t type_count;
+  read_type(entry, type_count);
+  class_group->pub.type_count = type_count;
+
   read_type(entry, class_group->class_count);
-  DEBUGF(PARSE, "%u types & %u classes", class_group->type_count, class_group->class_count);
+  DEBUGF(PARSE, "%u types & %u classes", type_count, class_group->class_count);
 
   read_table(entry, class_group, &class_group->function_name_table);
   read_table(entry, class_group, &class_group->arguments_table);
@@ -401,66 +410,72 @@ struct class_group *class_parse(struct lib_entry *entry){
   read_type_defs(entry, class_group, &class_group->enum_values);
   debug_type_names("enum values", class_group, &class_group->enum_values);
 
-  read_type_array(entry, class_group, class_group->type_headers, class_group->type_count);
+  read_type_array(entry, class_group, class_group->type_headers, type_count);
 
   struct pbclass_header *class_headers;
   read_type_array(entry, class_group, class_headers, class_group->class_count);
 
   // now the hard(-ish) part....
   unsigned j=0;
-  struct enumeration **enum_ptr = &class_group->pub.enumerations;
-  struct class_definition **class_ptr = &class_group->pub.classes;
+  class_group->pub.types = pool_alloc_array(class_group->pool, struct type_definition, type_count);
 
-  for (i=0;i<class_group->type_count;i++){
+  for (i=0;i<type_count;i++){
+    class_group->pub.types[i].name = get_type_name(class_group, class_group->type_headers[i].type);
     if ((class_group->type_headers[i].flags & 0xFF) == 3){
       // essentially in pbvmXX.dll(_typedef.grp) only
-      DEBUGF(PARSE, "Enum %u = %s", i, get_type_name(class_group, class_group->type_headers[i].type));
+      class_group->pub.types[i].type = enum_type;
+      DEBUGF(PARSE, "Enum %u = %s", i, class_group->pub.types[i].name);
       unsigned count = class_group->type_headers[i].enum_count;
 
+      // not bothering to keep the raw value list around yet
       struct pbenum_value values[count];
       read_type(entry, values);
       size_t size = sizeof(struct enumeration) + count * sizeof(struct enum_value);
 
-      struct enumeration *enumeration = (*enum_ptr) = pool_alloc(class_group->pool, size,
+      struct enumeration *enumeration = class_group->pub.types[i].enum_definition = pool_alloc(class_group->pool, size,
 	alignment_of(struct enumeration));
 
       memset(enumeration, size, 0);
-      enum_ptr = &enumeration->next;
 
-      // TODO names
-      //enumeration->name = ;
       enumeration->value_count = count;
 
       unsigned k;
       for (k=0;k<count;k++){
-	//enumeration->values[k].name = ;
+	enumeration->values[k].name = get_table_string(class_group, &class_group->main_table, values[k].name_offset);
 	enumeration->values[k].value = values[k].value;
+	DEBUGF(PARSE, " - %s! = %u [%04x]", enumeration->values[k].name, values[k].value, values[k].unnamed);
       }
 
-    }else if(class_group->type_headers[i].flags == 0x85 // _initsrc
-	|| class_group->type_headers[i].flags == 0x89 // _sharsrc
-	|| class_group->type_headers[i].flags == 0x0B // _globsrc
-	){
-      // NOOP
-      DEBUGF(PARSE, "Type %u = %s", i, get_type_name(class_group, class_group->type_headers[i].type));
+    }else if(class_group->type_headers[i].flags == 0x85){
+      class_group->pub.types[i].type = initsrc;
+      class_group->pub.types[i].class_definition = NULL;
+      DEBUGF(PARSE, "Type initsrc %u = %s", i, class_group->pub.types[i].name);
+    }else if(class_group->type_headers[i].flags == 0x89){
+      class_group->pub.types[i].type = sharedsrc;
+      class_group->pub.types[i].class_definition = NULL;
+      DEBUGF(PARSE, "Type sharedsrc %u = %s", i, class_group->pub.types[i].name);
+    }else if(class_group->type_headers[i].flags == 0x0B){
+      class_group->pub.types[i].type = globalsrc;
+      class_group->pub.types[i].class_definition = NULL;
+      DEBUGF(PARSE, "Type globalsrc %u = %s", i, class_group->pub.types[i].name);
     }else{
       // class
 
       struct class_def_private *class_def = pool_alloc_type(class_group->pool, struct class_def_private);
       memset(class_def, sizeof(*class_def), 0);
-      (*class_ptr) = &class_def->pub;
-      class_ptr = &class_def->pub.next;
+
+      class_group->pub.types[i].type = class_type;
+      class_group->pub.types[i].class_definition = (struct class_definition *)class_def;
 
       class_def->type_header = &class_group->type_headers[i];
       const struct pbclass_header *cls_header = class_def->header = &class_headers[j++];
 
-      class_def->pub.name = get_type_name(class_group, class_group->type_headers[i].type);
       class_def->pub.ancestor = get_type_name(class_group, cls_header->ancestor_type);
       class_def->pub.parent = get_type_name(class_group, cls_header->parent_type);
       class_def->pub.autoinstantiate = class_def->type_header->flags & 0x0100?1:0;
 
       DEBUGF(PARSE, "Class %u = %s (flags %04x, type %04x, ancestor %s, parent %s)", i,
-	class_def->pub.name,
+	class_group->pub.types[i].name,
 	class_group->type_headers[i].flags,
 	class_group->type_headers[i].type,
 	get_type_name(class_group, cls_header->ancestor_type),
@@ -518,7 +533,8 @@ struct class_group *class_parse(struct lib_entry *entry){
       read_type_array(entry, class_group, short_headers, cls_header->script_count);
 
       // absolutely no idea what this is;
-      DEBUGF(PARSE, "No idea");
+      if (cls_header->something_count)
+	DEBUGF(PARSE, "No idea");
       uint32_t ignored_array[cls_header->something_count];
       read_type(entry, ignored_array);
 
@@ -543,18 +559,18 @@ struct class_group *class_parse(struct lib_entry *entry){
 
       // Link all the script information we have together
       // I assume there are reasons for these tables to be in these orders
+      class_def->pub.script_count = cls_header->script_count;
+      class_def->pub.scripts = pool_alloc_array(class_group->pool, struct script_definition *, cls_header->script_count+1);
+
       struct script_def_private *script_definitions = pool_alloc_array(class_group->pool, struct script_def_private, cls_header->script_count);
-      struct script_definition **script_ptr = &class_def->pub.scripts;
 
       index=0;
       for (k=0;k<cls_header->script_count;k++){
-	// link ->next pointers
-	(*script_ptr) = (struct script_definition *)&script_definitions[k];
-	script_ptr = &script_definitions[k].pub.next;
+	class_def->pub.scripts[k]=&script_definitions[k].pub;
 
 	script_definitions[k].short_header = &short_headers[k];
 
-	// TODO bin search?
+	// TODO faster with a binary search, but is it worth the hastle?
 	unsigned l=0;
 	struct script_def_private *script_def=NULL;
 	for (l=0;l<cls_header->script_count;l++){
@@ -591,8 +607,8 @@ struct class_group *class_parse(struct lib_entry *entry){
 
 	build_arg_list(class_group, script_def);
       }
-      (*script_ptr) = NULL;
       assert(index == implemented_count);
+      class_def->pub.scripts[cls_header->script_count]=NULL;
 
       for (k=0;k<cls_header->script_count;k++){
 	DEBUGF(PARSE, "XXX Script[%u] %s %s %s %s, %s", k,
