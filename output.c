@@ -1,6 +1,7 @@
 #include "output.h"
 #include "class.h"
 #include "debug.h"
+#include "disassembly.h"
 
 static void write_variable(FILE *fd, struct variable_definition *variable){
   if (variable->read_access || variable->write_access){
@@ -66,6 +67,10 @@ static void write_forward(FILE *fd, struct class_group *group){
 }
 
 static void write_method_header(FILE *fd, struct script_definition *script){
+  if (script->hidden){
+    // not sure what the right syntax is for this undocumented flag
+    fprintf(fd, "/* HIDDEN! */ ");
+  }
   if (script->event_type){
     fprintf(fd, "event %s %s", script->name+1, script->event_type);
     return;
@@ -98,14 +103,12 @@ static void write_method_header(FILE *fd, struct script_definition *script){
       fprintf(fd, "%s", arg->dimensions);
   }
   fprintf(fd,")");
-
   for (i=0; i<script->throws_count; i++){
     if (i==0)
       fprintf(fd, " throws %s", script->throws[i]);
     else
       fprintf(fd, ", %s", script->throws[i]);
   }
-
   if (script->rpc)
     fprintf(fd, " rpcfunc");
   if (script->library){
@@ -161,6 +164,11 @@ static void write_class(FILE *fd, const char *name, struct class_definition *cla
       fprintf(fd, ";");
       // skip arguments
       write_variables(fd, 0, NULL, script->local_variables + script->argument_count);
+      struct disassembly *code = disassemble(script);
+      if (code){
+	dump_pcode(fd, code);
+	disassembly_free(code);
+      }
       if (script->event)
 	fprintf(fd, "\nend event\n\n");
       else if(script->return_type)
@@ -173,7 +181,7 @@ static void write_class(FILE *fd, const char *name, struct class_definition *cla
 
 void write_group(FILE *fd, struct class_group *group){
   write_forward(fd, group);
-  // TODO structures
+  // TODO structure definitions first, not last
   write_variables(fd, 1, "shared", group->global_variables);
   // this works, but it's not exactly right...
   write_variables(fd, 0, "global", group->global_variables);
