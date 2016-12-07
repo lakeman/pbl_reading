@@ -4,114 +4,30 @@
 #include "pool_alloc.h"
 #include "debug.h"
 
-#define DEFINE_OP(NAME,ARGS,INIT,DESCRIPTION) NAME,
 
-// define unique id's for every possible op code
-enum pcodeid{
+// since each opcode may be used in multiple versions of PB, with different op-codes
+
+// 1) define our own unique id for each instruction type (see disassembly.h)
+
+// 2) a global table with metadata for parsing instructions of that type
+#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG) \
+  struct pcode_def OP_##NAME##_##ARGS = {\
+    .id=NAME##_##ARGS, \
+    .name=#NAME, \
+    .args=ARGS,\
+    .stack_kind=STACK_KIND,\
+    .stack_arg=STACK_ARG};
+
 #include "opcodes.inc"
-MAX_ID
-};
-#undef DEFINE_OP
 
-// a global table of op code names, argument bytes and unique id's
-#define DEFINE_OP(NAME,ARGS,INIT,DESCRIPTION) \
-  struct pcode_def OP_##NAME##_##ARGS = {.id=NAME, .name=#NAME, .description=DESCRIPTION, .args=ARGS};
-#include "opcodes.inc"
-#undef DEFINE_OP
-
-static void pop(struct pool *pool, struct instruction *inst, unsigned pop_count, unsigned peek_count, struct instruction **stack, unsigned *stack_ptr){
-  unsigned count=pop_count + peek_count;
-  if (count==0)
-    return;
-  inst->stack = pool_alloc_array(pool, struct instruction*, count);
-  inst->stack_count = count;
-
-  unsigned i;
-
-  if (*stack_ptr < count)
-    DEBUGF(DISASSEMBLY, "****** STACK UNDERFLOW ******");
-  for (i=0;i<count;i++)
-    inst->stack[i]=(*stack_ptr)>i ? stack[(*stack_ptr)-i-1] : NULL;
-  (*stack_ptr)-=pop_count;
-}
-
-static void popn(struct pool *pool, struct instruction *inst, unsigned count, struct instruction **stack, unsigned *stack_ptr){
-  if (count==0)
-    return;
-  inst->stack = pool_alloc_array(pool, struct instruction*, count);
-  inst->stack_count = count;
-
-  if (*stack_ptr < count+1)
-    DEBUGF(DISASSEMBLY, "****** STACK UNDERFLOW ******");
-  struct instruction *top = (*stack_ptr)>0 ? stack[--(*stack_ptr)] : NULL;
-  unsigned i;
-  for (i=0;i<count;i++)
-    inst->stack[i]=(*stack_ptr)>0 ? stack[--(*stack_ptr)] : NULL;
-  stack[(*stack_ptr)++]=top;
-}
-
-static void swap_at(struct pool *pool, struct instruction *inst, unsigned offset, struct instruction **stack, unsigned *stack_ptr){
-  inst->stack_count = 1;
-  inst->stack = pool_alloc_type(pool, struct instruction*);
-  if (*stack_ptr < offset){
-    DEBUGF(DISASSEMBLY, "****** STACK UNDERFLOW ******");
-    inst->stack[0]=NULL;
-  }else{
-    inst->stack[0]=stack[(*stack_ptr)-offset];
-    stack[(*stack_ptr)-offset] = inst;
-  }
-}
-
-static inline void push(struct instruction *inst, struct instruction **stack, unsigned *stack_ptr){
-  stack[(*stack_ptr)++]=inst;
-}
-
-// I don't want to define a function per op code, particularly if it only returns a constant
-// hopefully the compiler can do magic here to combine redundant expressions and inline stack operations
-
-#define PEEK(N) pop(pool, inst, 0, (N), stack, stack_ptr);
-#define SWAP_AT(N) swap_at(pool, inst, (N), stack, stack_ptr);
-#define PUSH push(inst, stack, stack_ptr);
-#define POP(N) pop(pool, inst, (N), 0, stack, stack_ptr);
-#define POP_PUSH(N) pop(pool, inst, (N), 0, stack, stack_ptr); PUSH
-#define PEEK_PUSH(N) pop(pool, inst, 0, (N), stack, stack_ptr); PUSH
-#define POPN(N) popn(pool, inst, (N), stack, stack_ptr);
-#define POP_PEEK(P,K) pop(pool, inst, (P), (K), stack, stack_ptr);
-#define args inst->args
-#define DEFINE_OP(NAME,ARGS,INIT,DESCRIPTION) case NAME: INIT break;
-
-void init_stack(struct pool *pool, struct instruction *inst, struct instruction **stack, unsigned *stack_ptr){
-  inst->stack_count = 0;
-  inst->stack = NULL;
-  switch(inst->definition->id){
-#include "opcodes.inc"
-    default:
-      break;
-  }
-}
-
-#undef PUSH
-#undef PEEK
-#undef PEEK_AT
-#undef POP
-#undef POPN
 #undef DEFINE_OP
 
 
-
-
-
+// 3) declare which pcode instruction numbers relate to which operations for each version of PB
 #define OP(NAME,ARGS) & OP_##NAME##_##ARGS
 
-// TODO separate definition and declaration?
-
-// define a bunch of globals for each opcode
-// each opcode may be used in multiple versions of PB
-
-
-
-// declare which pcode instruction numbers relate to which operations for each version of PB
 struct pcode_def *PB120_opcodes[] = {
+// TODO, use #defs in a common file to define these for each version?
 OP(SM_RETURN,0),
 OP(SM_STORE_RETURN_VAL,1),
 OP(SM_JUMPTRUE,1),

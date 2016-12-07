@@ -164,8 +164,12 @@ static void write_class(FILE *fd, const char *name, struct class_definition *cla
       fprintf(fd, ";");
       // skip arguments
       write_variables(fd, 0, NULL, script->local_variables + script->argument_count);
+      fflush(stdout);
       struct disassembly *code = disassemble(script);
+      fflush(stdout);
       if (code){
+	dump_statements(fd, code);
+	fprintf(fd, "RAW;\n");
 	dump_pcode(fd, code);
 	disassembly_free(code);
       }

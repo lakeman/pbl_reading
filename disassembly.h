@@ -27,11 +27,40 @@ struct statement{
   struct instruction *end;
 };
 
+// define an enum with unique instruction id's
+#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG) NAME##_##ARGS,
+enum pcodeid{
+#include "opcodes.inc"
+MAX_ID
+};
+#undef DEFINE_OP
+
+// ways that instructions interaction with the stack?
+enum stack_kind{
+  stack_unknown,
+  stack_none,
+  stack_result, // operators etc
+  stack_result_indirect,
+  stack_clone_indirect, // duplicate the LV onto the stack, eg string +=
+  stack_action, // assignments, branches etc
+  stack_action_indirect,
+  stack_tweak_indirect, // type promotion before / after an operator / call
+  stack_popn, // preserve the topmost stack item, remove N items below it
+  stack_popn_indirect,
+  stack_peek_result,
+  stack_peek_result_indirect,
+  stack_dotcall, // object reference was pushed onto stack first
+  stack_classcall, // function reference was pushed onto stack last
+  stack_tweak_indirect1, // SM_FREE_REF_PAK_N (sigh)
+};
+
 struct pcode_def{
   unsigned id;
   const char *name;
   const char *description;
   unsigned args;
+  enum stack_kind stack_kind;
+  unsigned stack_arg;
 };
 
 struct disassembly{
@@ -41,11 +70,11 @@ struct disassembly{
 };
 
 extern struct pcode_def *PB120_opcodes[];
-void init_stack(struct pool *pool, struct instruction *i, struct instruction **stack, unsigned *stack_ptr);
 
 // this should probably be in a different header....
 struct disassembly *disassemble(struct script_definition *script);
 void dump_pcode(FILE *fd, struct disassembly *disassembly);
+void dump_statements(FILE *fd, struct disassembly *disassembly);
 void disassembly_free(struct disassembly *disassembly);
 
 #endif
