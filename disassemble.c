@@ -9,7 +9,8 @@
 #define POP() (*stack_ptr>0 ? stack[--(*stack_ptr)] : NULL)
 #define PEEK(I) (*stack_ptr>(I) ? stack[(*stack_ptr) - (I) -1] : NULL)
 #define POKE(I,V) if (*stack_ptr>(I)) stack[(*stack_ptr) - (I) -1] = (V)
-
+// emulate the impact each instruction has on the stack
+// to discover how each input value is calculated
 static void init_stack(struct pool *pool, struct instruction *inst, struct instruction **stack, unsigned *stack_ptr){
   inst->stack_count = 0;
   inst->stack = NULL;

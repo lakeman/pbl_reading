@@ -73,6 +73,73 @@ const char *get_table_string(struct class_group_private *class_group, struct dat
   return pool_dup_u(class_group->pool, (const UChar *)get_table_ptr(class_group, table, offset));
 }
 
+static unsigned record_sizes[]={0,2,0,0,8,16,12,12,12,56,2,6,8,8,0,0,8,16,8,24,4,0,2,8};
+
+static void dump_table(FILE *fd, struct class_group_private *class_group, struct data_table *table){
+  unsigned offset = 0;
+  unsigned entry = 0;
+  while(offset < table->data_length){
+    if (entry < table->metadata_count && offset == table->metadata[entry].offset){
+      assert(table->metadata[entry].structure_type >=1 && table->metadata[entry].structure_type <=23);
+      unsigned record_size = record_sizes[table->metadata[entry].structure_type];
+      assert(record_size);
+      fprintf(fd, "%04x %u * [type_%u]:\n", offset, table->metadata[entry].count, table->metadata[entry].structure_type);
+      unsigned i;
+      unsigned j;
+      for(i=0; i<table->metadata[entry].count; i++){
+	fprintf(fd, "   [%u]:",i);
+	for (j=0;j<record_size;j++)
+	  fprintf(fd, " %02x", table->data[offset++]);
+	fprintf(fd, "\n");
+      }
+      entry++;
+      continue;
+    }
+
+    unsigned data_len;
+    if (class_group->header.compiler_version<PB10){
+      const char *str = (const char *)&table->data[offset];
+      data_len = strlen(str)+1;
+      if (entry < table->metadata_count && offset + data_len > table->metadata[entry].offset){
+	// bad string? alignment?
+	fprintf(fd, "[Skipped %04x]\n", table->metadata[entry].offset - offset);
+	offset = table->metadata[entry].offset;
+	continue;
+      }
+      fprintf(fd, "%04x \"%s\"\n", offset, str);
+    }else{
+      UErrorCode status = U_ZERO_ERROR;
+      int32_t dst_len=0;
+      const UChar *src=(const UChar *)&table->data[offset];
+      int len = u_strlen(src);
+      data_len = (len+1)*2;
+
+      if (entry < table->metadata_count && offset + data_len > table->metadata[entry].offset){
+	// bad string? alignment?
+	fprintf(fd, "[Skipped %04x]\n", table->metadata[entry].offset - offset);
+	offset = table->metadata[entry].offset;
+	continue;
+      }
+
+      u_strToUTF8(NULL, 0, &dst_len, src, len, &status);
+      status = U_ZERO_ERROR;
+      char buff[dst_len+1];
+      u_strToUTF8(buff, dst_len, NULL, src, len, &status);
+      buff[dst_len]=0;
+      fprintf(fd, "%04x \"%s\"\n", offset, buff);
+    }
+    offset+=data_len;
+  }
+  assert(entry == table->metadata_count);
+}
+
+void dump_script_resources(FILE *fd, struct class_group *group, struct script_definition *script){
+  struct script_def_private *script_def = (struct script_def_private *)script;
+  if (!script_def->body)
+    return;
+  dump_table(fd, (struct class_group_private*)group, &script_def->body->resources);
+}
+
 const char *get_type_name(struct class_group_private *class_group, uint16_t type){
   if (type==0 || type == 0xC000)
     return NULL;
@@ -453,7 +520,7 @@ struct class_group *class_parse(struct lib_entry *entry){
 	read_type_defs(entry, class_group, &implementation->local_variables);
 	debug_type_names("local variables", class_group, &implementation->local_variables);
 	DEBUGF(PARSE, "References");
-	read_table(entry, class_group, &implementation->references);
+	read_table(entry, class_group, &implementation->resources);
       }
 
       if (cls_header->script_count)

@@ -3,6 +3,7 @@
 #define class_header
 
 #include <stdint.h>
+#include <stdio.h>
 
 struct enum_value{
   const char *name;
@@ -94,5 +95,7 @@ struct lib_entry;
 
 struct class_group *class_parse(struct lib_entry *entry);
 void class_free(struct class_group *class_group);
+
+void dump_script_resources(FILE *fd, struct class_group *group, struct script_definition *script);
 
 #endif

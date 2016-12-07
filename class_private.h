@@ -36,7 +36,7 @@ struct script_implementation{
   uint16_t debugline_count;
   const struct pbdebug_line_num *debug_lines;
   struct type_defs local_variables;
-  struct data_table references;
+  struct data_table resources;
 };
 
 struct script_def_private{

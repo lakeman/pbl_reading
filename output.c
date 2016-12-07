@@ -138,7 +138,7 @@ static void write_prototypes(FILE *fd, int external, struct class_definition *cl
     fprintf(fd, "end prototypes\n\n");
 }
 
-static void write_class(FILE *fd, const char *name, struct class_definition *class_def){
+static void write_class(FILE *fd, struct class_group *group, const char *name, struct class_definition *class_def){
   write_type_dec(fd, name, class_def);
   write_variables(fd, 0, NULL, class_def->instance_variables);
 
@@ -168,9 +168,12 @@ static void write_class(FILE *fd, const char *name, struct class_definition *cla
       struct disassembly *code = disassemble(script);
       fflush(stdout);
       if (code){
-	dump_statements(fd, code);
-	fprintf(fd, "RAW;\n");
+	//dump_statements(fd, code);
+	fprintf(fd, "/* Resource table;\n");
+	dump_script_resources(fd, group, script);
+	fprintf(fd, "\nInstructions;\n");
 	dump_pcode(fd, code);
+	fprintf(fd, "*/\n");
 	disassembly_free(code);
       }
       if (script->event)
@@ -193,6 +196,6 @@ void write_group(FILE *fd, struct class_group *group){
   unsigned i;
   for (i=0;i<group->type_count;i++){
     if (group->types[i].type == class_type)
-      write_class(fd, group->types[i].name, group->types[i].class_definition);
+      write_class(fd, group, group->types[i].name, group->types[i].class_definition);
   }
 }
