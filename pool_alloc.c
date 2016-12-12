@@ -116,6 +116,8 @@ const char *pool_dupn_u(struct pool *pool, const UChar *str, size_t len){
 const char *pool_dup_u(struct pool *pool, const UChar *str){
   if (!str)
     return NULL;
+  if (!*str)
+    return "";
 
   UErrorCode status = U_ZERO_ERROR;
 

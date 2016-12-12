@@ -582,7 +582,7 @@ struct class_group *class_parse(struct lib_entry *entry){
 	if (index < implemented_count && implementations[index].number == short_headers[l].method_number){
 	  script_def->body = &implementations[index++];
 	  script_def->pub.implemented = 1;
-	  script_def->pub.local_variable_count = class_def->instance_variables.count;
+	  script_def->pub.local_variable_count = script_def->body->local_variables.count;
 	  script_def->pub.local_variables = type_defs_to_variables(class_group, &script_def->body->local_variables);
 	}else{
 	  script_def->pub.implemented = 0;

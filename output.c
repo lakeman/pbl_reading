@@ -138,7 +138,32 @@ static void write_prototypes(FILE *fd, int external, struct class_definition *cl
     fprintf(fd, "end prototypes\n\n");
 }
 
-static void write_class(FILE *fd, struct class_group *group, const char *name, struct class_definition *class_def){
+static void write_script_body(FILE *fd, struct class_group *group, struct class_definition *class_def, struct script_definition *script){
+  write_method_header(fd, script);
+  fprintf(fd, ";");
+  // variable declarations, skipping arguments
+  write_variables(fd, 0, NULL, script->local_variables + script->argument_count);
+  struct disassembly *code = disassemble(group, class_def, script);
+  if (code){
+
+    dump_statements(fd, code);
+
+    //fprintf(fd, "/* Resource table;\n");
+    //dump_script_resources(fd, group, script);
+    //fprintf(fd, "\nInstructions;\n");
+    //dump_pcode(fd, code);
+    //fprintf(fd, "*/\n");
+    disassembly_free(code);
+  }
+  if (script->event)
+    fprintf(fd, "\nend event\n\n");
+  else if(script->return_type)
+    fprintf(fd, "\nend function\n\n");
+  else
+    fprintf(fd, "\nend subroutine\n\n");
+}
+
+static void write_class(FILE *fd, struct class_group *UNUSED(group), const char *name, struct class_definition *class_def){
   write_type_dec(fd, name, class_def);
   write_variables(fd, 0, NULL, class_def->instance_variables);
 
@@ -157,31 +182,19 @@ static void write_class(FILE *fd, struct class_group *group, const char *name, s
   write_variables(fd, 1, "type", class_def->instance_variables);
   write_prototypes(fd, 0, class_def);
 
+  // first the functions
   for (i=0;class_def->scripts[i];i++){
     struct script_definition *script = class_def->scripts[i];
-    if (script->implemented){
-      write_method_header(fd, script);
-      fprintf(fd, ";");
-      // skip arguments
-      write_variables(fd, 0, NULL, script->local_variables + script->argument_count);
-      fflush(stdout);
-      struct disassembly *code = disassemble(script);
-      fflush(stdout);
-      if (code){
-	//dump_statements(fd, code);
-	fprintf(fd, "/* Resource table;\n");
-	dump_script_resources(fd, group, script);
-	fprintf(fd, "\nInstructions;\n");
-	dump_pcode(fd, code);
-	fprintf(fd, "*/\n");
-	disassembly_free(code);
-      }
-      if (script->event)
-	fprintf(fd, "\nend event\n\n");
-      else if(script->return_type)
-	fprintf(fd, "\nend function\n\n");
-      else
-	fprintf(fd, "\nend subroutine\n\n");
+    if (script->implemented && !script->event){
+      write_script_body(fd, group, class_def, script);
+    }
+  }
+
+  // then the events
+  for (i=0;class_def->scripts[i];i++){
+    struct script_definition *script = class_def->scripts[i];
+    if (script->implemented && script->event){
+      write_script_body(fd, group, class_def,script);
     }
   }
 }

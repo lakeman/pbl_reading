@@ -69,6 +69,24 @@ struct pbtable_info{
   uint16_t count;
 };
 
+struct pbprop_ref{
+  uint32_t name_offset;
+  uint16_t prop_number;
+  uint16_t type;
+};
+
+struct pbmethod_ref{
+  uint16_t method_number;
+  uint16_t type;
+  uint32_t name_offset;
+};
+
+struct pbcreate_ref{
+  uint32_t name_offset;
+  uint16_t type;
+  uint16_t flags;
+};
+
 struct pbext_reference{
   uint32_t name_offset;
   uint16_t unnamed1;

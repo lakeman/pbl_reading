@@ -28,7 +28,7 @@ struct statement{
 };
 
 // define an enum with unique instruction id's
-#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG) NAME##_##ARGS,
+#define DEFINE_OP(NAME,ARGS, ...) NAME##_##ARGS,
 enum pcodeid{
 #include "opcodes.inc"
 MAX_ID
@@ -65,6 +65,9 @@ struct pcode_def{
 
 struct disassembly{
   struct pool *pool;
+  struct class_group *group;
+  struct class_definition *class_def;
+  struct script_definition *script;
   struct instruction *instructions;
   struct statement *statements;
 };
@@ -72,7 +75,7 @@ struct disassembly{
 extern struct pcode_def *PB120_opcodes[];
 
 // this should probably be in a different header....
-struct disassembly *disassemble(struct script_definition *script);
+struct disassembly *disassemble(struct class_group *group, struct class_definition *class_def, struct script_definition *script);
 void dump_pcode(FILE *fd, struct disassembly *disassembly);
 void dump_statements(FILE *fd, struct disassembly *disassembly);
 void disassembly_free(struct disassembly *disassembly);

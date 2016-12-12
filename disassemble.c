@@ -126,7 +126,7 @@ stack_result:
 #undef PEEK
 #undef POKE
 
-struct disassembly *disassemble(struct script_definition *script){
+struct disassembly *disassemble(struct class_group *group, struct class_definition *class_def, struct script_definition *script){
   struct script_def_private *script_def = (struct script_def_private *)script;
 
   if (!script_def || !script_def->body || !script_def->body->code)
@@ -137,6 +137,9 @@ struct disassembly *disassemble(struct script_definition *script){
   memset(disassembly, sizeof(struct disassembly), 0);
 
   disassembly->pool = pool;
+  disassembly->group = group;
+  disassembly->class_def = class_def;
+  disassembly->script = script;
 
   unsigned offset=0;
 #define MAX_STACK 128
