@@ -79,6 +79,7 @@ struct class_group_private{
 const void *get_table_ptr(struct class_group_private *class_group, struct data_table *table, uint32_t offset);
 const struct pbtable_info *get_table_info(struct class_group_private *class_group, struct data_table *table, uint32_t offset);
 const char *get_table_string(struct class_group_private *class_group, struct data_table *table, uint32_t offset);
+struct class_def_private *get_class_by_type(struct class_group_private *class_group, uint16_t type);
 const char *get_type_name(struct class_group_private *class_group, uint16_t type);
 
 #endif

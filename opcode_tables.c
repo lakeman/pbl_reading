@@ -5,18 +5,43 @@
 #include "debug.h"
 
 
+// Ugly macro tom-foolery to apply the same macro to each argument
+#define NARGS_SEQ(_x, _0,_1,_2,_3,_4,_5,_6,_7,_8,_9,_10,_11,N,...) N
+#define NARGS(...) NARGS_SEQ(0, ##__VA_ARGS__, 12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define CAT2(x, y) x ## y
+#define CAT(x, y) CAT2(x, y)
+#define APPLY_0(m) CAT(m, _0)
+#define APPLY_1(m, x1) m(x1)
+#define APPLY_2(m, x1, x2) m(x1), m(x2)
+#define APPLY_3(m, x1, x2, x3) m(x1), m(x2), m(x3)
+#define APPLY_4(m, x1, x2, x3, x4) m(x1), m(x2), m(x3), m(x4)
+#define APPLY_5(m, x1, x2, x3, x4, x5) m(x1), m(x2), m(x3), m(x4), m(x5)
+#define APPLY_6(m, x1, x2, x3, x4, x5, x6) m(x1), m(x2), m(x3), m(x4), m(x5), m(x6)
+#define APPLY_7(m, x1, x2, x3, x4, x5, x6, x7) m(x1), m(x2), m(x3), m(x4), m(x5), m(x6), m(x7)
+#define APPLY_8(m, x1, x2, x3, x4, x5, x6, x7, x8) m(x1), m(x2), m(x3), m(x4), m(x5), m(x6), m(x7), m(x8)
+#define APPLY_9(m, x1, x2, x3, x4, x5, x6, x7, x8, x9) m(x1), m(x2), m(x3), m(x4), m(x5), m(x6), m(x7), m(x8), m(x9)
+#define APPLY_10(m, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) m(x1), m(x2), m(x3), m(x4), m(x5), m(x6), m(x7), m(x8), m(x9), m(x10)
+#define APPLY_11(m, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11) m(x1), m(x2), m(x3), m(x4), m(x5), m(x6), m(x7), m(x8), m(x9), m(x10), m(x11)
+#define APPLY_12(m, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12) m(x1), m(x2), m(x3), m(x4), m(x5), m(x6), m(x7), m(x8), m(x9), m(x10), m(x11), m(x12)
+#define APPLY(macro, ...) CAT(APPLY_, NARGS(__VA_ARGS__))(macro, ##__VA_ARGS__)
+
+#define TOKEN(X) ((const char *)(X))
+#define TOKEN_0 NULL
+
+
 // since each opcode may be used in multiple versions of PB, with different op-codes
 
 // 1) define our own unique id for each instruction type (see disassembly.h)
 
 // 2) a global table with metadata for parsing instructions of that type
-#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG) \
+#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG, ...) \
   struct pcode_def OP_##NAME##_##ARGS = {\
     .id=NAME##_##ARGS, \
     .name=#NAME, \
     .args=ARGS,\
     .stack_kind=STACK_KIND,\
-    .stack_arg=STACK_ARG};
+    .stack_arg=STACK_ARG,\
+    .tokens={APPLY(TOKEN, ##__VA_ARGS__), NULL}};
 
 #include "opcodes.inc"
 

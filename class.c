@@ -140,11 +140,33 @@ void dump_script_resources(FILE *fd, struct class_group *group, struct script_de
   dump_table(fd, (struct class_group_private*)group, &script_def->body->resources);
 }
 
+struct class_def_private *get_class_by_type(struct class_group_private *group, uint16_t type){
+  if (type==0 || type == 0xC000)
+    return NULL;
+
+  if (type & 0x8000){
+    unsigned i;
+    for (i=0;i<group->pub.type_count;i++){
+      if (group->pub.types[i].type == class_type){
+	struct class_def_private *class_def = (struct class_def_private *)group->pub.types[i].class_definition;
+	if (class_def->type_header->type == type)
+	  return class_def;
+      }
+    }
+
+    return NULL;
+  }
+
+  // system types???
+  return NULL;
+}
+
 const char *get_type_name(struct class_group_private *class_group, uint16_t type){
   if (type==0 || type == 0xC000)
     return NULL;
   if (type & 0x4000){
-    // cheating a bit, look for the first external reference to this type
+    // cheating a bit, look for an external reference to this type
+    // covers a lot of basic cases
     unsigned i;
     for (i=0;i<class_group->ext_ref_count;i++)
       if (type == class_group->external_refs[i].system_type

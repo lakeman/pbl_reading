@@ -13,7 +13,6 @@ struct instruction{
   unsigned offset;
   uint16_t opcode;
   unsigned line_number;
-  struct instruction *next;
   struct pcode_def *definition;
   const uint16_t *args;
   unsigned stack_count;
@@ -25,8 +24,12 @@ struct instruction{
 // special cases;
 enum statement_type{
   expression = 0,
+  generated,
+  mem_append,
   if_then,
+  if_then_endif,
   do_while,
+  if_not_then,
   do_until,
   loop_while,
   loop_until,
@@ -50,17 +53,57 @@ struct statement{
   unsigned destination_count;
 };
 
-#define BIN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2)
-#define BIN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##ASSIGN_##TYPE, 2, stack_action, 2)
-#define UN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 1)
-#define UN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_action, 1)
-#define CONVERT(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 1, stack_tweak_indirect, 0)
-#define CONVERT2(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 2, stack_tweak_indirect, 0)
-#define ASSIGN(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 1, stack_action, 2)
-#define ASSIGN2(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 2, stack_action, 2)
-#define CMP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2)
-#define CMP2(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_result, 2)
-#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK)
+enum token_types{
+  STACK = 1,
+  STACK_CSV,
+  STACK_DOT_CSV,
+  FUNC_CLASS,
+  ARG_INT,
+  ARG_CSV,
+  ARG_LONG,
+  ARG_LONG_HEX,
+  RES,
+  RES_STRING,
+  RES_STRING_CONST,
+  TYPE,
+  LOCAL,
+  GLOBAL,
+  SHARED,
+  END,
+  MAX_TOKEN
+};
+
+#define OPERATOR_EQ " = "
+#define OPERATOR_NE " <> "
+#define OPERATOR_GT " > "
+#define OPERATOR_LT " < "
+#define OPERATOR_GE " >= "
+#define OPERATOR_LE " <= "
+
+#define OPERATOR_ADD " + "
+#define OPERATOR_SUB " - "
+#define OPERATOR_MULT " * "
+#define OPERATOR_DIV " / "
+#define OPERATOR_POWER " ^ "
+#define OPERATOR_NEGATE "-"
+
+#define OPERATOR_ASSIGNINCR "++"
+#define OPERATOR_ASSIGNDECR "--"
+#define OPERATOR_ASSIGNADD " += "
+#define OPERATOR_ASSIGNSUB " -= "
+#define OPERATOR_ASSIGNMULT " *= "
+
+#define BIN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, "(", STACK, 1, OPERATOR_##NAME, STACK, 0, ")")
+#define BIN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##ASSIGN_##TYPE, 2, stack_action, 2, STACK, 1, OPERATOR_ASSIGN##NAME, STACK, 0, END)
+#define UN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 1, "(", OPERATOR_##NAME, STACK, 0, ")")
+#define UN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_action, 1, STACK, 0, OPERATOR_ASSIGN##NAME, END)
+#define CONVERT(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 1, stack_tweak_indirect, 0, STACK, 0)
+#define CONVERT2(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 2, stack_tweak_indirect, 0, STACK, 0)
+#define ASSIGN(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 1, stack_action, 2, STACK, 1, " = ", STACK, 0, END)
+#define ASSIGN2(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 2, stack_action, 2, STACK, 1, " = ", STACK, 0, END)
+#define CMP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, "(", STACK, 1, OPERATOR_##NAME, STACK, 0, ")")
+#define CMP2(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_result, 2, "(", STACK, 1, OPERATOR_##NAME, STACK, 0, ")")
+#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK, #FUNC "(", STACK_CSV, ")")
 
 // define an enum with unique instruction id's
 #define DEFINE_OP(NAME,ARGS, ...) NAME##_##ARGS,
@@ -96,6 +139,7 @@ struct pcode_def{
   unsigned args;
   enum stack_kind stack_kind;
   unsigned stack_arg;
+  const char *tokens[];
 };
 
 struct disassembly{
@@ -103,7 +147,8 @@ struct disassembly{
   struct class_group *group;
   struct class_definition *class_def;
   struct script_definition *script;
-  struct instruction *instructions;
+  unsigned instruction_count;
+  struct instruction **instructions;
   unsigned statement_count;
   struct statement **statements;
 };
