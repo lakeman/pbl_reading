@@ -27,6 +27,18 @@ struct statement{
   struct instruction *end;
 };
 
+#define BIN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2)
+#define BIN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##ASSIGN_##TYPE, 2, stack_action, 2)
+#define UN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 1)
+#define UN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_action, 1)
+#define CONVERT(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 1, stack_tweak_indirect, 0)
+#define CONVERT2(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 2, stack_tweak_indirect, 0)
+#define ASSIGN(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 1, stack_action, 2)
+#define ASSIGN2(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 2, stack_action, 2)
+#define CMP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2)
+#define CMP2(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_result, 2)
+#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK)
+
 // define an enum with unique instruction id's
 #define DEFINE_OP(NAME,ARGS, ...) NAME##_##ARGS,
 enum pcodeid{
