@@ -287,7 +287,7 @@ static void build_arg_list(struct class_group_private *class_group, struct scrip
   unsigned count = script_def->pub.argument_count = script_def->argument_info->count;
   struct argument_definition **pointers = pool_alloc_array(class_group->pool, struct argument_definition *, count+1);
   struct arg_def_private *args = pool_alloc_array(class_group->pool, struct arg_def_private, count);
-  memset(args, sizeof(struct arg_def_private)*count, 0);
+  memset(args, 0, sizeof(struct arg_def_private)*count);
 
   script_def->pub.arguments = pointers;
   unsigned i;
@@ -327,7 +327,7 @@ struct class_group *class_parse(struct lib_entry *entry){
   unsigned i;
   struct pool *pool = pool_create();
   struct class_group_private *class_group = pool_alloc_type(pool, struct class_group_private);
-  memset(class_group, sizeof(*class_group), 0);
+  memset(class_group, 0, sizeof(*class_group));
 
   class_group->pool = pool;
 
@@ -432,7 +432,7 @@ struct class_group *class_parse(struct lib_entry *entry){
       struct enumeration *enumeration = class_group->pub.types[i].enum_definition = pool_alloc(class_group->pool, size,
 	alignment_of(struct enumeration));
 
-      memset(enumeration, size, 0);
+      memset(enumeration, 0, size);
 
       enumeration->value_count = count;
 
@@ -459,7 +459,7 @@ struct class_group *class_parse(struct lib_entry *entry){
       // class
 
       struct class_def_private *class_def = pool_alloc_type(class_group->pool, struct class_def_private);
-      memset(class_def, sizeof(*class_def), 0);
+      memset(class_def, 0, sizeof(*class_def));
 
       class_group->pub.types[i].type = class_type;
       class_group->pub.types[i].class_definition = (struct class_definition *)class_def;

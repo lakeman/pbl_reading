@@ -80,7 +80,7 @@ struct library *lib_open(const char *filename){
   // se we can duplicate string buffers, and quickly throw them all away when we're done
   struct pool *pool = pool_create();
   struct library_private *lib = pool_alloc_type(pool, struct library_private);
-  memset(&lib->root, sizeof(lib->root), 0);
+  memset(&lib->root, 0, sizeof(lib->root));
   lib->pool = pool;
   lib->fd = fd;
   lib->pub.unicode = unicode;
@@ -138,7 +138,7 @@ static struct directory * dir_left(struct library_private *lib, struct directory
   read_dir(lib, dir);
   if (!dir->left && dir->nod->left_offset){
     dir->left = pool_alloc_type(lib->pool, struct directory);
-    memset(dir->left, sizeof(struct directory), 0);
+    memset(dir->left, 0, sizeof(struct directory));
     dir->left->offset = dir->nod->left_offset;
     DEBUGF(LIB, "Init left @%x",dir->left->offset);
   }
@@ -149,7 +149,7 @@ static struct directory * dir_right(struct library_private *lib, struct director
   read_dir(lib, dir);
   if (!dir->right && dir->nod->right_offset){
     dir->right = pool_alloc_type(lib->pool, struct directory);
-    memset(dir->right, sizeof(struct directory), 0);
+    memset(dir->right, 0, sizeof(struct directory));
     dir->right->offset = dir->nod->right_offset;
     DEBUGF(LIB, "Init right @%x",dir->right->offset);
   }
@@ -167,7 +167,7 @@ static void read_ents(struct library_private *lib, struct directory *dir){
 
   for(index=0; index < dir->nod->no_entries; index++){
     struct lib_entry_private *entry = (*ptr) = pool_alloc_type(lib->pool, struct lib_entry_private);
-    memset(entry, sizeof(struct lib_entry_private), 0);
+    memset(entry, 0, sizeof(struct lib_entry_private));
     ptr = &entry->next;
 
     entry->lib = lib;

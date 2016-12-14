@@ -134,7 +134,7 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
 
   struct pool *pool = pool_create();
   struct disassembly *disassembly = pool_alloc_type(pool, struct disassembly);
-  memset(disassembly, sizeof(struct disassembly), 0);
+  memset(disassembly, 0, sizeof(struct disassembly));
 
   disassembly->pool = pool;
   disassembly->group = group;
@@ -156,7 +156,7 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
     uint16_t opcode = pc[0];
 
     struct instruction *inst = (*inst_ptr) = pool_alloc_type(pool, struct instruction);
-    memset(inst, sizeof(struct instruction), 0);
+    memset(inst, 0, sizeof(struct instruction));
     inst->offset = offset;
     inst->opcode = opcode;
     inst->definition = PB120_opcodes[opcode];
