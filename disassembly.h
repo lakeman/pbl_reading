@@ -22,10 +22,32 @@ struct instruction{
   uint8_t end:1;
 };
 
+// special cases;
+enum statement_type{
+  expression = 0,
+  if_then,
+  do_while,
+  do_until,
+  loop_while,
+  loop_until,
+  loop,
+  for_init,
+  for_jump,
+  for_step,
+  for_test,
+  jump_goto,
+  exception_try,
+  exception_catch,
+};
+
 struct statement{
   struct statement *next;
+  struct statement *prev;
   struct instruction *start;
   struct instruction *end;
+  enum statement_type type;
+  struct statement *branch;
+  unsigned destination_count;
 };
 
 #define BIN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2)
@@ -82,7 +104,8 @@ struct disassembly{
   struct class_definition *class_def;
   struct script_definition *script;
   struct instruction *instructions;
-  struct statement *statements;
+  unsigned statement_count;
+  struct statement **statements;
 };
 
 extern struct pcode_def *PB120_opcodes[];

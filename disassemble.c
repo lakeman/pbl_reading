@@ -126,6 +126,89 @@ stack_result:
 #undef PEEK
 #undef POKE
 
+// a forwards jumpfalse might be for_next, do_while or just if_then
+static void classify_if_then(struct disassembly *disassembly, unsigned statement_number)
+{
+  struct statement *if_test = disassembly->statements[statement_number];
+  struct statement *prior = if_test->branch->prev;
+
+  // loops end with a jump back to the start
+  if (prior->type != jump_goto)
+    return;
+
+  unsigned dest_offset = prior->end->args[0];
+  if (dest_offset == if_test->start->offset){
+    if_test->type = do_while;
+    return;
+  }
+
+  /* for var = initial_value to end_value [step step_by]
+   * 	[body]
+   * next
+   *
+   * is equivalent to;
+   *
+   * var = initial_value; goto if_test; step: var++; [OR var += step_by;] if_test: if var <= end_value then
+   *   [body]
+   * goto step; end if
+   */
+
+  if (statement_number >= 3
+    && disassembly->statements[statement_number -3]->start->line_number == if_test->end->line_number
+    && dest_offset == disassembly->statements[statement_number -1]->start->offset
+    && disassembly->statements[statement_number -2]->type == jump_goto
+    // more explicitly;
+    // && statement_number -3 == SM_ASSIGN_[TYPE]
+    // && statement_number -1 == SM_INCR_[TYPE] || SM_ADDASSIGN_[TYPE]
+    // && same variable in all cases
+    ){
+    disassembly->statements[statement_number -3]->type = for_init;
+    disassembly->statements[statement_number -2]->type = for_jump;
+    disassembly->statements[statement_number -1]->type = for_step;
+    if_test->type = for_test;
+    return;
+  }
+}
+
+static void link_destinations(struct disassembly *disassembly){
+  unsigned i;
+  // find the destination of each jump
+  for (i=0;i<disassembly->statement_count;i++){
+    struct statement *ptr = disassembly->statements[i];
+    switch(ptr->type){
+      case exception_catch:
+	assert(ptr->end->definition->id == SM_JUMPFALSE_1);
+	goto find_dest;
+
+      case if_then:
+      case jump_goto:
+      case loop_while:
+      case loop_until:
+      case do_until:
+find_dest:
+      {
+	unsigned dest_offset = ptr->end->args[0];
+	unsigned j;
+	// TODO binary search?
+	for (j=0;j<disassembly->statement_count;j++){
+	  if (disassembly->statements[j]->start->offset == dest_offset){
+	    ptr->branch = disassembly->statements[j];
+	    ptr->branch->destination_count++;
+	    break;
+	  }
+	}
+      } break;
+
+      default:
+	break;
+    }
+
+    if (ptr->type == if_then)
+      classify_if_then(disassembly, i);
+
+  }
+}
+
 struct disassembly *disassemble(struct class_group *group, struct class_definition *class_def, struct script_definition *script){
   struct script_def_private *script_def = (struct script_def_private *)script;
 
@@ -146,8 +229,7 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
   struct instruction *stack[MAX_STACK];
   unsigned stack_ptr=0;
 
-  struct statement **statement_ptr = &disassembly->statements;
-  struct statement *statement = NULL;
+  struct statement *first_statement = NULL, *prev_statement = NULL, *statement = NULL;
   struct instruction **inst_ptr = &disassembly->instructions;
   unsigned debug_line=0;
 
@@ -177,15 +259,57 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
     DEBUGF(DISASSEMBLY,"%04x: %04x %s, %u, %u", inst->offset, opcode, inst->definition->name, inst->stack_count, stack_ptr);
 
     if (!statement){
-      statement = (*statement_ptr) = pool_alloc_type(pool, struct statement);
+      disassembly->statement_count++;
+      statement = pool_alloc_type(pool, struct statement);
+      memset(statement, 0, sizeof *statement);
+      if (!first_statement){
+	first_statement = statement;
+      }else{
+	prev_statement->next = statement;
+	statement->prev = prev_statement;
+      }
       statement->start = inst;
+      statement->type=expression;
       inst->begin = 1;
-      statement->next = NULL;
-      statement_ptr = &statement->next;
+      prev_statement = statement;
     }else
       inst->begin = 0;
 
     statement->end = inst;
+
+    // first guess at flow control structure
+    if (statement->type == expression){
+      switch(inst->definition->id){
+	case SM_JUMP_1:
+	  statement->type=jump_goto;
+	  break;
+
+	case SM_JUMPTRUE_1:
+	  if (inst->args[0] > inst->offset){
+	    statement->type=do_until;
+	  }else{
+	    statement->type=loop_while;
+	  }
+	  break;
+
+	case SM_JUMPFALSE_1:
+	  if (inst->args[0] > inst->offset){
+	    statement->type=if_then;
+	  }else{
+	    statement->type=loop_until;
+	  }
+	  break;
+
+	case SM_PUSH_TRY_2:
+	  statement->type=exception_try;
+	  break;
+
+	case SM_CATCH_EXCEPTION_0:
+	  // this will be followed by a jump_if, but we can easily classify it now.
+	  statement->type=exception_catch;
+	  break;
+      }
+    }
 
     if (stack_ptr==0){
       // end of statement
@@ -197,6 +321,22 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
 
   if (stack_ptr)
     WARNF("Stack pointer (%u) is not zero at the end of %s!", stack_ptr, script->name);
+
+  // do we really want to fix this now? or insert goto destination, "do" & "end if" labels first?
+  disassembly->statements = pool_alloc_array(pool, struct statement*, disassembly->statement_count+1);
+  {
+    struct statement *ptr = first_statement;
+    unsigned i;
+    for (i=0;i<disassembly->statement_count;i++){
+      assert(ptr);
+      disassembly->statements[i] = ptr;
+      ptr = ptr->next;
+    }
+    disassembly->statements[disassembly->statement_count]=NULL;
+
+    link_destinations(disassembly);
+  }
+
   return disassembly;
 }
 
@@ -241,11 +381,10 @@ static void dump_instruction(FILE *fd, struct instruction *inst){
 }
 
 void dump_statements(FILE *fd, struct disassembly *disassembly){
-  struct statement *statement = disassembly->statements;
-  while(statement){
-    dump_instruction(fd, statement->end);
+  unsigned i;
+  for (i=0;i<disassembly->statement_count;i++){
+    dump_instruction(fd, disassembly->statements[i]->end);
     fprintf(fd, ";\n");
-    statement = statement->next;
   }
 }
 
