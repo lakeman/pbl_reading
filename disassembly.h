@@ -12,6 +12,7 @@ struct pool;
 struct instruction{
   unsigned offset;
   uint16_t opcode;
+  unsigned line_number;
   struct instruction *next;
   struct pcode_def *definition;
   const uint16_t *args;

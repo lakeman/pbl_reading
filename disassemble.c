@@ -149,8 +149,13 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
   struct statement **statement_ptr = &disassembly->statements;
   struct statement *statement = NULL;
   struct instruction **inst_ptr = &disassembly->instructions;
+  unsigned debug_line=0;
 
   while(offset < script_def->body->code_size){
+
+    if (debug_line+1 < script_def->body->debugline_count
+      && offset >= script_def->body->debug_lines[debug_line].pcode_offset)
+      debug_line++;
 
     const uint16_t *pc = (const uint16_t*)&script_def->body->code[offset];
     uint16_t opcode = pc[0];
@@ -162,6 +167,7 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
     inst->definition = PB120_opcodes[opcode];
     inst->args = pc+1;
     inst->next = NULL;
+    inst->line_number = script_def->body->debug_lines[debug_line].line_number;
     inst_ptr = &inst->next;
 
     offset += (1+inst->definition->args)*2;
