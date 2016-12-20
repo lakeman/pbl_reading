@@ -34,6 +34,7 @@ enum statement_type{
   loop_while,
   loop_until,
   loop,
+  next,
   for_init,
   for_jump,
   for_step,
@@ -41,6 +42,7 @@ enum statement_type{
   jump_goto,
   exception_try,
   exception_catch,
+  exception_end_try
 };
 
 struct statement{
@@ -51,6 +53,8 @@ struct statement{
   enum statement_type type;
   struct statement *branch;
   unsigned destination_count;
+  unsigned classified_count;
+  int indent_delta;
 };
 
 enum token_types{
@@ -62,6 +66,7 @@ enum token_types{
   ARG_CSV,
   ARG_LONG,
   ARG_LONG_HEX,
+  METHOD_FLAGS,
   RES,
   RES_STRING,
   RES_STRING_CONST,

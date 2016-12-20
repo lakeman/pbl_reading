@@ -6,6 +6,7 @@
 #include "pool_alloc.h"
 
 static void dump_pcode_inst(FILE *fd, struct instruction *inst);
+static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst);
 
 #define PUSH(X) stack[(*stack_ptr)++]=X
 #define POP() (*stack_ptr>0 ? stack[--(*stack_ptr)] : NULL)
@@ -149,6 +150,13 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
 	if_test->type = do_while;
       else
 	if_test->type = do_until;
+
+      prior->indent_delta--;
+      prior->next->indent_delta++;
+
+      prior->type = loop;
+      prior->classified_count++;
+      if_test->branch->classified_count++;
       return;
     }
 
@@ -168,6 +176,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
       && disassembly->statements[statement_number -3]->start->line_number == if_test->end->line_number
       && dest_offset == disassembly->statements[statement_number -1]->start->offset
       && disassembly->statements[statement_number -2]->type == jump_goto
+      && disassembly->statements[statement_number -2]->end->args[0] == if_test->start->offset
       // more explicitly;
       // && statement_number -3 == SM_ASSIGN_[TYPE]
       // && statement_number -1 == SM_INCR_[TYPE] || SM_ADDASSIGN_[TYPE]
@@ -177,6 +186,12 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
       disassembly->statements[statement_number -2]->type = for_jump;
       disassembly->statements[statement_number -1]->type = for_step;
       if_test->type = for_test;
+      if_test->classified_count++;
+      disassembly->statements[statement_number -1]->classified_count++;
+      prior->indent_delta--;
+      prior->next->indent_delta++;
+      prior->classified_count++;
+      prior->type = next;
       return;
     }
   }
@@ -188,6 +203,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
       i++;
     if (i>statement_number+1 && if_test->branch == disassembly->statements[i]){
       if_test->type = if_then;
+      if_test->branch->classified_count++;
       return;
     }
   }
@@ -201,14 +217,66 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
     }
     return;
   }
+
 }
 
 static void link_destinations(struct disassembly *disassembly){
   unsigned i;
   // find the destination of each jump
+  fflush(stdout);
   for (i=0;i<disassembly->statement_count;i++){
     struct statement *ptr = disassembly->statements[i];
     switch(ptr->type){
+      case exception_try:{
+	DEBUGF(DISASSEMBLY, "Try?");
+	ptr->next->indent_delta++;
+	unsigned catch_offset = ptr->end->args[0];
+	unsigned end_offset = ptr->end->args[1];
+	struct statement *catch_block=NULL, *end=NULL;
+	unsigned j;
+
+	// TODO binary search?
+	for (j=i+1;j<disassembly->statement_count;j++){
+	  if (disassembly->statements[j]->start->offset == catch_offset){
+	    catch_block = disassembly->statements[j];
+	  }
+	  if (disassembly->statements[j]->start->offset == end_offset){
+	    end = disassembly->statements[j];
+	  }
+	  if (disassembly->statements[j]->end->definition->id == SM_JUMP_1
+	   && disassembly->statements[j]->end->args[0] == end_offset)
+	     disassembly->statements[j]->type = generated;
+	}
+	assert(catch_block && end);
+	struct statement *try_end = catch_block->prev;
+
+	if (end->end->definition->id == SM_GOSUB_1){
+	  DEBUGF(DISASSEMBLY, "has finally?");
+	  unsigned finally_offset = end->end->args[0];
+	  for (j=i+1;j<disassembly->statement_count;j++){
+	    if (disassembly->statements[j]->start->offset == finally_offset){
+	      // TODO insert "finally" label
+	      struct statement *finally = disassembly->statements[j];
+	      finally->indent_delta++;
+	      end->prev->indent_delta--;
+
+	      if (finally_offset < catch_offset)
+		try_end = finally->prev;
+	      break;
+	    }
+	  }
+	  end->type = generated;
+	  end = end->next;
+	}
+	assert(end->end->definition->id == SM_POP_TRY_0);
+	end->type = exception_end_try;
+
+	assert(try_end->end->definition->id == SM_JUMP_1);
+	assert(try_end->end->args[0] == end_offset);
+	try_end->indent_delta--;
+
+	continue;
+      }
       case exception_catch:
 	assert(ptr->end->definition->id == SM_JUMPFALSE_1);
 	goto find_dest;
@@ -235,17 +303,31 @@ find_dest:
 	  DEBUGF(DISASSEMBLY, "Branch dest %04x is not the start of a statement (for %s @%04x)", dest_offset, ptr->end->definition->name, ptr->end->offset);
 	  continue;
 	}
+
       } break;
 
       default:
-	break;
+	continue;
     }
 
-    if (ptr->type == jump_goto && ptr->branch->type == generated)
+    // TODO only after classifying break / else etc.
+    if (ptr->type == jump_goto && ptr->branch->end->definition->id == SM_RETURN_0){
       ptr->type = generated;
+      ptr->branch->classified_count++;
+    }
 
     if (ptr->type == if_then_endif || ptr->type == if_not_then)
       classify_if_then(disassembly, i);
+
+    if (ptr->branch && ptr->type!=jump_goto && ptr->type!=generated && ptr->type!= if_then){
+      if (ptr->branch->start->offset > ptr->start->offset){
+	ptr->next->indent_delta++;
+	ptr->branch->indent_delta--;
+      }else{
+	ptr->indent_delta--;
+	ptr->branch->indent_delta++;
+      }
+    }
 
   }
 }
@@ -319,6 +401,9 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
     // first guess at flow control structure
     if (statement->type == expression){
       switch(inst->definition->id){
+	//case SM_GOSUB_1:
+	//case SM_POP_TRY_0: // only the last one will end up as exception_end_try
+	case SM_RETURN_SUB_0:
 	case SM_RETURN_0:
 	  statement->type=generated;
 	  break;
@@ -376,6 +461,9 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
     if (IFDEBUG(DISASSEMBLY)){
       fflush(stdout);
       dump_pcode_inst(stderr, inst);
+      fprintf(stderr," [");
+      printf_instruction(stderr, disassembly, inst);
+      fprintf(stderr,"]\n");
     }
   }
 
@@ -427,7 +515,6 @@ static void dump_pcode_inst(FILE *fd, struct instruction *inst){
     fprintf(fd, " BEGIN");
   if (inst->end)
     fprintf(fd, " END");
-  fprintf(fd, "\n");
 }
 
 void dump_pcode(FILE *fd, struct disassembly *disassembly){
@@ -435,6 +522,7 @@ void dump_pcode(FILE *fd, struct disassembly *disassembly){
   for(i=0;i<disassembly->instruction_count;i++){
     struct instruction *inst = disassembly->instructions[i];
     dump_pcode_inst(fd, inst);
+    fprintf(fd, "\n");
   }
 }
 
@@ -513,19 +601,25 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
   struct script_def_private *script = (struct script_def_private *)disassembly->script;
 
   if (!*tokens){
-    fprintf(fd, "%s[", inst->definition->name);
-    for (i=0; i < inst->definition->args; i++){
-      if (i>0)
-	fprintf(fd, ", ");
-      fprintf(fd, "%04x", inst->args[i]);
+    fputs(inst->definition->name, fd);
+    if (inst->definition->args){
+      fputc('[', fd);
+      for (i=0; i < inst->definition->args; i++){
+	if (i>0)
+	  fputs(", ", fd);
+	fprintf(fd, "%04x", inst->args[i]);
+      }
+      fputc(']', fd);
     }
-    fprintf(fd, "](");
+    fputc('(', fd);
     for (i=0; i < inst->stack_count; i++){
       if (i>0)
-	fprintf(fd, ", ");
+	fputs(", ", fd);
       printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i - 1]);
     }
-    fprintf(fd, ")");
+    fputc(')', fd);
+    if (inst->end)
+      fputc(';', fd);
     return;
   }
 
@@ -541,7 +635,7 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       case STACK_CSV:
 	for (i=0; i < inst->stack_count; i++){
 	  if (i>0)
-	    fprintf(fd, ", ");
+	    fputs(", ", fd);
 	  printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i - 1]);
 	}
 	break;
@@ -549,7 +643,7 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       case STACK_DOT_CSV:
 	for (i=1; i < inst->stack_count; i++){
 	  if (i>1)
-	    fprintf(fd, ", ");
+	    fputs(", ", fd);
 	  printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i]);
 	}
 	break;
@@ -559,7 +653,7 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	assert(i < inst->definition->args);
 	unsigned var = inst->args[i];
 	assert(var<disassembly->script->local_variable_count);
-	fprintf(fd, "%s", disassembly->script->local_variables[var]->name);
+	fputs(disassembly->script->local_variables[var]->name, fd);
       }break;
 
       case SHARED:
@@ -567,20 +661,20 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	assert(i < inst->definition->args);
 	i = inst->args[i];
 	assert(i<disassembly->group->global_variable_count);
-	fprintf(fd, "%s", disassembly->group->global_variables[i]->name);
+	fputs(disassembly->group->global_variables[i]->name, fd);
 	break;
 
       case TYPE:{
 	i = (int)(*(++tokens));
 	assert(i < inst->definition->args);
 	uint16_t type = inst->args[i];
-	fprintf(fd, "%s", get_type_name(group, type));
+	fputs(get_type_name(group, type), fd);
       }break;
 
       case ARG_CSV:
 	for (i=0; i < inst->definition->args; i++){
 	  if (i>0)
-	    fprintf(fd, ", ");
+	    fputs(", ", fd);
 	  fprintf(fd, "%04x", inst->args[i]);
 	}
 	break;
@@ -591,6 +685,16 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	assert(i < inst->definition->args);
 	fprintf(fd, "%d", inst->args[i]);
 	break;
+
+      case METHOD_FLAGS:{
+	i = (int)(*(++tokens));
+	assert(i < inst->definition->args);
+	uint16_t flags = inst->args[i];
+	if (flags & 1)
+	  fputs("post ", fd);
+	if (flags & 2)
+	  fputs("dynamic ", fd);
+      }break;
 
       case RES:{
 	i=(int)(*(++tokens));
@@ -603,14 +707,25 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	assert(i+1 < inst->definition->args);
 	uint32_t offset = *(const uint32_t*)&inst->args[i];
 	const char *str = get_table_string(group, &script->body->resources, offset);
-	// TODO escape each character...
-	fprintf(fd, "\"%s\"", str);
+	fputc('\"', fd);
+	while(*str){
+	  switch(*str){
+	    case '\"': fputs("~\"", fd); break;
+	    case '\'': fputs("~\'", fd); break;
+	    case '\r': fputs("~r", fd); break;
+	    case '\n': fputs("~n", fd); break;
+	    case '~': fputs("~~", fd); break;
+	    default: fputc(*str, fd); break;
+	  }
+	  str++;
+	}
+	fputc('\"', fd);
       }break;
       case RES_STRING:{
 	i=(int)(*(++tokens));
 	assert(i+1 < inst->definition->args);
 	uint32_t offset = *(const uint32_t*)&inst->args[i];
-	fprintf(fd, "%s", get_table_string(group, &script->body->resources, offset));
+	fputs(get_table_string(group, &script->body->resources, offset), fd);
       }break;
 
       case ARG_LONG_HEX:
@@ -640,11 +755,11 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       }break;
 
       case END:
-	fprintf(fd,";");
+	fputc(';', fd);
 	break;
 
       default:
-	fprintf(fd, "%s", *tokens);
+	fputs(*tokens, fd);
     }
    tokens++;
   }
@@ -655,37 +770,76 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
     dump_script_resources(fd, disassembly->group, disassembly->script);
   unsigned i;
   unsigned line=1;
+  int indent=0;
   for (i=0;i<disassembly->statement_count;i++){
     struct statement *statement = disassembly->statements[i];
     //dump_instruction(fd, statement->end);
     //fprintf(fd, ";\n");
-    if (statement->type == generated)
-      continue;
+
+    indent += statement->indent_delta;
+    assert(indent>=0);
 
     while (line < statement->start->line_number){
-      fprintf(fd, "\n");
+      fputc('\n', fd);
       line++;
+      int j;
+      for(j=0;j<indent;j++)
+	fputs("    ", fd);
     }
 
-    if (statement->destination_count)
+    if (statement->classified_count < statement->destination_count){
       fprintf(fd, "Offset_%u:\n", statement->start->offset);
+      int j;
+      for(j=0;j<indent;j++)
+	fputs("    ", fd);
+    }
 
-    printf_instruction(fd, disassembly, statement->end);
+    if (statement->type == generated && !IFDEBUG(DISASSEMBLY))
+      continue;
+
+    // special cases;
+    switch(statement->type){
+      case exception_try:	fputs("try;", fd); break;
+      case exception_end_try:	fputs("end try;", fd); break;
+      case loop:		fputs("loop;", fd); break;
+      case next:		fputs("next;", fd); break;
+      case if_then:
+	fputs("if ", fd);
+	printf_instruction(fd, disassembly, statement->end->stack[0]);
+	fputs(" then ", fd);
+	break;
+      case do_while:
+	fputs("do while ", fd);
+	printf_instruction(fd, disassembly, statement->end->stack[0]);
+	fputs(";", fd);
+	break;
+      case do_until:
+	fputs("do until ", fd);
+	printf_instruction(fd, disassembly, statement->end->stack[0]);
+	fputs(";", fd);
+	break;
+      case for_init:
+	fputs("for(", fd);
+	printf_instruction(fd, disassembly, statement->end);
+	fputc(' ', fd);
+	printf_instruction(fd, disassembly, disassembly->statements[i+3]->end->stack[0]);
+	fputs("; ", fd);
+	printf_instruction(fd, disassembly, disassembly->statements[i+2]->end);
+	fputc(')', fd);
+	i+=3;// skip other instructions completely
+	break;
+      default:
+	printf_instruction(fd, disassembly, statement->end);
+	break;
+    }
 
     // For now just add comments for known special cases;
     switch(statement->type){
-      case if_then:		fprintf(fd, " /* IF [condition] THEN ... */"); break;
+      case generated:		fprintf(fd, " /* GENERATED? */"); break;
       case if_then_endif:	fprintf(fd, " /* IF [condition] THEN ... END IF */"); break;
-      case do_while:		fprintf(fd, " /* DO WHILE */"); break;
       case if_not_then:		fprintf(fd, " /* IF NOT ? */"); break;
-      case do_until:		fprintf(fd, " /* DO UNTIL */"); break;
       case loop_while:		fprintf(fd, " /* LOOP WHILE */"); break;
       case loop_until:		fprintf(fd, " /* LOOP UNTIL */"); break;
-      case loop:		fprintf(fd, " /* LOOP */"); break;
-      //case for_init:		fprintf(fd, " /* FOR"); break;
-      //case for_jump:		fprintf(fd, " /* FOR"); break;
-      //case for_step:		fprintf(fd, " /* FOR"); break;
-      case for_test:		fprintf(fd, " /* FOR */"); break;
       case mem_append:		fprintf(fd, " /* += */"); break;
       default: break;
     }
