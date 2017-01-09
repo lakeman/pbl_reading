@@ -116,6 +116,18 @@ struct pbarg_def{
   uint16_t flags;
 };
 
+struct pb_decimal{
+  uint8_t magnitude[14];
+  uint8_t sign;
+  uint8_t exponent;
+};
+
+struct pb_old_decimal{
+  uint8_t sign;
+  uint8_t exponent;
+  uint8_t magnitude[10];
+};
+
 struct pbtype_header{
   uint16_t flags;
   uint16_t type;
@@ -131,7 +143,7 @@ struct pbclass_header{
   uint16_t ancestor_type;
   uint16_t parent_type;
   uint16_t script_count;
-  uint16_t ancestor_method_count;
+  uint16_t unnamed5;
   uint16_t script_something_count;
   uint16_t unnamed1;
   uint16_t unnamed2;

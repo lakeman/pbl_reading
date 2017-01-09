@@ -169,7 +169,7 @@ static void write_class(FILE *fd, struct class_group *UNUSED(group), const char 
 
   unsigned i;
   for (i=0;class_def->scripts[i];i++){
-    if (class_def->scripts[i]->event){
+    if (class_def->scripts[i]->event && !class_def->scripts[i]->in_ancestor){
       write_method_header(fd, class_def->scripts[i]);
       fprintf(fd,"\n");
     }

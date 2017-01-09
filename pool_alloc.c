@@ -109,6 +109,7 @@ const char *pool_dupn_u(struct pool *pool, const UChar *str, size_t len){
   status = U_ZERO_ERROR;
   char *ret = pool_alloc(pool, dst_len+1, 1);
   u_strToUTF8(ret, dst_len, NULL, str, len/2, &status);
+  ret[dst_len]=0;
   assert(!U_FAILURE(status));
   return ret;
 }
@@ -130,6 +131,7 @@ const char *pool_dup_u(struct pool *pool, const UChar *str){
   status = U_ZERO_ERROR;
   char *ret = pool_alloc(pool, len+1, 1);
   u_strToUTF8(ret, len, NULL, str, -1, &status);
+  ret[len]=0;
   assert(!U_FAILURE(status));
   return ret;
 }

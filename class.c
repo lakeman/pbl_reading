@@ -493,12 +493,17 @@ struct class_group *class_parse(struct lib_entry *entry){
       class_def->pub.parent = get_type_name(class_group, cls_header->parent_type);
       class_def->pub.autoinstantiate = class_def->type_header->flags & 0x0100?1:0;
 
-      DEBUGF(PARSE, "Class %u = %s (flags %04x, type %04x, ancestor %s, parent %s)", i,
+      DEBUGF(PARSE, "Class %u = %s (flags %04x, type %04x, ancestor %s, parent %s, %04x, %04x, %04x, %04x, %04x)", i,
 	class_group->pub.types[i].name,
 	class_group->type_headers[i].flags,
 	class_group->type_headers[i].type,
 	get_type_name(class_group, cls_header->ancestor_type),
-	get_type_name(class_group, cls_header->parent_type));
+	get_type_name(class_group, cls_header->parent_type),
+	cls_header->unnamed1,
+	cls_header->unnamed2,
+	cls_header->unnamed3,
+	cls_header->unnamed4,
+	cls_header->unnamed5);
 
       uint16_t script_count;
       read_type(entry, script_count);
@@ -623,6 +628,7 @@ struct class_group *class_parse(struct lib_entry *entry){
 	script_def->pub.hidden = (script_headers[k].more_flags & 1)?1:0;
 	script_def->pub.system = (script_headers[k].flags & 0x0200)?1:0;
 	script_def->pub.rpc = (script_headers[k].flags & 0x0800)?1:0;
+	script_def->pub.in_ancestor = 0; // not sure how to work this out yet....
 
 	script_def->pub.throws_count = script_headers[k].throws_count;
 	script_def->pub.throws = pool_alloc_array(class_group->pool, const char *, script_def->pub.throws_count+1);
@@ -638,7 +644,17 @@ struct class_group *class_parse(struct lib_entry *entry){
       class_def->pub.scripts[cls_header->script_count]=NULL;
 
       for (k=0;k<cls_header->script_count;k++){
-	DEBUGF(PARSE, "XXX Script[%u] %s %s %s %s, %s", k,
+	DEBUGF(PARSE, "XXX Script[%u] %u, %u, %04x, %04x, %04x, %04x, %04x, %04x, %s %s %s %s %s %s, %s", k,
+	  script_definitions[k].short_header->method_id,
+	  script_definitions[k].short_header->method_number,
+	  script_definitions[k].header->unnamed1,
+	  script_definitions[k].header->unnamed2,
+	  script_definitions[k].header->unnamed3,
+	  script_definitions[k].header->unnamed4,
+	  script_definitions[k].header->unnamed5,
+	  script_definitions[k].header->flags,
+	  script_definitions[k].pub.event ? "event" : "function",
+	  script_definitions[k].pub.in_ancestor ? "override" : "new",
 	  script_definitions[k].pub.name,
 	  script_definitions[k].pub.signature,
 	  script_definitions[k].pub.library,

@@ -34,11 +34,12 @@
 // 1) define our own unique id for each instruction type (see disassembly.h)
 
 // 2) a global table with metadata for parsing instructions of that type
-#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG, ...) \
+#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG,PRECEDENCE,...) \
   struct pcode_def OP_##NAME##_##ARGS = {\
     .id=NAME##_##ARGS, \
     .name=#NAME, \
     .args=ARGS,\
+    .precedence=PRECEDENCE,\
     .stack_kind=STACK_KIND,\
     .stack_arg=STACK_ARG,\
     .tokens={APPLY(TOKEN, ##__VA_ARGS__), NULL}};
@@ -89,9 +90,9 @@ OP(SM_PUSH_CONST_REF,2),
 OP(SM_PUSH_THIS,0),
 OP(SM_PUSH_PARENT,0),
 OP(SM_PUSH_PRIMARY,0),
-OP(SM_AND,0),
-OP(SM_OR,0),
-OP(SM_NOT,0),
+OP(SM_AND_BOOL,0),
+OP(SM_OR_BOOL,0),
+OP(SM_NOT_BOOL,0),
 OP(SM_DOT,1),
 OP(SM_INDEX,0),
 OP(SM_GLOBFUNCCALL,3),

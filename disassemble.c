@@ -1,12 +1,13 @@
 #include <assert.h>
 #include <string.h>
+#include <inttypes.h>
 #include "class_private.h"
 #include "disassembly.h"
 #include "debug.h"
 #include "pool_alloc.h"
 
 static void dump_pcode_inst(FILE *fd, struct instruction *inst);
-static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst);
+static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst, uint8_t precedence);
 
 #define PUSH(X) stack[(*stack_ptr)++]=X
 #define POP() (*stack_ptr>0 ? stack[--(*stack_ptr)] : NULL)
@@ -154,7 +155,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
       prior->indent_delta--;
       prior->next->indent_delta++;
 
-      prior->type = loop;
+      prior->type = jump_loop;
       prior->classified_count++;
       if_test->branch->classified_count++;
       return;
@@ -191,7 +192,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
       prior->indent_delta--;
       prior->next->indent_delta++;
       prior->classified_count++;
-      prior->type = next;
+      prior->type = jump_next;
       return;
     }
   }
@@ -199,6 +200,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
   if (if_test->type == if_then_endif){
     // one line if test?
     unsigned i=statement_number+1;
+    // TODO, only skip generated statements? (eg SM_JUMP_1 to SM_RETURN_0)
     while(i < disassembly->statement_count && disassembly->statements[i]->end->line_number == if_test->end->line_number)
       i++;
     if (i>statement_number+1 && if_test->branch == disassembly->statements[i]){
@@ -462,7 +464,7 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
       fflush(stdout);
       dump_pcode_inst(stderr, inst);
       fprintf(stderr," [");
-      printf_instruction(stderr, disassembly, inst);
+      printf_instruction(stderr, disassembly, inst, 0);
       fprintf(stderr,"]\n");
     }
   }
@@ -501,12 +503,12 @@ static void dump_pcode_inst(FILE *fd, struct instruction *inst){
   for(;arg < 6; arg++)
     fprintf(fd, "     ");
 
-  fprintf(fd, "%s (", inst->definition->name);
+  fprintf(fd, "%s [%u](", inst->definition->name, inst->definition->precedence);
   for (arg=0; arg < inst->stack_count; arg++){
     if (arg>0)
       fprintf(fd, ", ");
     if (inst->stack && inst->stack[arg])
-      fprintf(fd, "%04x %s ", inst->stack[arg]->offset, inst->stack[arg]->definition->name);
+      fprintf(fd, "%04x %s [%u]", inst->stack[arg]->offset, inst->stack[arg]->definition->name, inst->stack[arg]->definition->precedence);
     else
       fprintf(fd, "NULL");
   }
@@ -558,6 +560,45 @@ static void printf_res(FILE *fd, struct class_group_private *group, struct data_
   }
 
   switch(info->structure_type){
+    case 1:{
+      fprintf(fd, "%d", *(const int*)ptr);
+      return;
+    }
+    case 4:{
+      fprintf(fd, "%f", *(const double*)ptr);
+      return;
+    }
+    case 5:{
+      // decimal
+      intmax_t magnitude=0; // probably not big enough, but should work for smaller constants.
+      uint8_t sign;
+      uint8_t exponent;
+      if (group->header.compiler_version <= PB10){
+	struct pb_old_decimal *dec = (struct pb_old_decimal *)ptr;
+	sign = dec->sign;
+	exponent = dec->exponent;
+	memcpy(&magnitude, dec->magnitude, sizeof magnitude > sizeof dec->magnitude ? sizeof dec->magnitude : sizeof magnitude);
+      }else{
+	struct pb_decimal *dec = (struct pb_decimal *)ptr;
+	sign = dec->sign;
+	exponent = dec->exponent;
+	memcpy(&magnitude, dec->magnitude, sizeof magnitude > sizeof dec->magnitude ? sizeof dec->magnitude : sizeof magnitude);
+      }
+      if (sign)
+	magnitude = -magnitude;
+      char buff[32];
+      int chars = snprintf(buff, sizeof buff, "%"PRIdMAX, magnitude);
+      if (exponent){
+	unsigned i;
+	for(i=0;i<exponent;i++)
+	  buff[chars -i] = buff[chars -i -1];
+	buff[chars - exponent]='.';
+	buff[chars+1]=0;
+      }
+      fputs(buff, fd);
+      return;
+    }
+    // case 6: datetime.... probably need to know if the caller needs date / time or both...
     case 12:{ // property reference
       const struct pbprop_ref *ref = (struct pbprop_ref *)ptr;
       const char *name = get_table_string(group, table, ref->name_offset);
@@ -589,7 +630,7 @@ static void printf_res(FILE *fd, struct class_group_private *group, struct data_
   fprintf(fd, "%02x_%04x", info->structure_type, offset);
 }
 
-static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst){
+static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst, uint8_t precedence){
   if (!inst){
     fprintf(fd, "***NULL***");
     return;
@@ -599,6 +640,8 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
   struct class_group_private *group = (struct class_group_private *)disassembly->group;
   //struct class_def_private *class_def = (struct class_def_private *)disassembly->class_def;
   struct script_def_private *script = (struct script_def_private *)disassembly->script;
+
+  uint8_t this_precedence = inst->definition->precedence;
 
   if (!*tokens){
     fputs(inst->definition->name, fd);
@@ -615,7 +658,7 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
     for (i=0; i < inst->stack_count; i++){
       if (i>0)
 	fputs(", ", fd);
-      printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i - 1]);
+      printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i - 1], this_precedence);
     }
     fputc(')', fd);
     if (inst->end)
@@ -623,20 +666,24 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
     return;
   }
 
+  if (precedence && precedence < this_precedence)
+    fputs("(", fd);
+
   while(*tokens){
     //fprintf(fd, "\n%s %p %u\n", inst->definition->name, *tokens, inst->stack_count);
     switch((enum token_types)(*tokens)){
-      case STACK:
+      case STACK:{
 	i=(int)(*(++tokens));
 	assert(i<inst->stack_count);
-	printf_instruction(fd, disassembly, inst->stack[i]);
+	printf_instruction(fd, disassembly, inst->stack[i], this_precedence);
 	break;
+      }
 
       case STACK_CSV:
 	for (i=0; i < inst->stack_count; i++){
 	  if (i>0)
 	    fputs(", ", fd);
-	  printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i - 1]);
+	  printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i - 1], this_precedence);
 	}
 	break;
 
@@ -644,7 +691,7 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	for (i=1; i < inst->stack_count; i++){
 	  if (i>1)
 	    fputs(", ", fd);
-	  printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i]);
+	  printf_instruction(fd, disassembly, inst->stack[inst->stack_count - i], this_precedence);
 	}
 	break;
 
@@ -761,8 +808,11 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       default:
 	fputs(*tokens, fd);
     }
-   tokens++;
+    tokens++;
   }
+
+  if (precedence && precedence < this_precedence)
+    fputs(")", fd);
 }
 
 void dump_statements(FILE *fd, struct disassembly *disassembly){
@@ -801,35 +851,39 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
     switch(statement->type){
       case exception_try:	fputs("try;", fd); break;
       case exception_end_try:	fputs("end try;", fd); break;
-      case loop:		fputs("loop;", fd); break;
-      case next:		fputs("next;", fd); break;
+      case jump_loop:		fputs("loop;", fd); break;
+      case jump_next:		fputs("next;", fd); break;
+      case jump_break:		fputs("break;", fd); break;
+      case jump_continue:	fputs("continue;", fd); break;
+      case jump_else:		fputs("else;", fd); break;
+      case jump_elseif:		fputs("else", fd); break;
       case if_then:
 	fputs("if ", fd);
-	printf_instruction(fd, disassembly, statement->end->stack[0]);
+	printf_instruction(fd, disassembly, statement->end->stack[0], 0);
 	fputs(" then ", fd);
 	break;
       case do_while:
 	fputs("do while ", fd);
-	printf_instruction(fd, disassembly, statement->end->stack[0]);
+	printf_instruction(fd, disassembly, statement->end->stack[0], 0);
 	fputs(";", fd);
 	break;
       case do_until:
 	fputs("do until ", fd);
-	printf_instruction(fd, disassembly, statement->end->stack[0]);
+	printf_instruction(fd, disassembly, statement->end->stack[0], 0);
 	fputs(";", fd);
 	break;
       case for_init:
 	fputs("for(", fd);
-	printf_instruction(fd, disassembly, statement->end);
+	printf_instruction(fd, disassembly, statement->end, 0);
 	fputc(' ', fd);
-	printf_instruction(fd, disassembly, disassembly->statements[i+3]->end->stack[0]);
+	printf_instruction(fd, disassembly, disassembly->statements[i+3]->end->stack[0], 0);
 	fputs("; ", fd);
-	printf_instruction(fd, disassembly, disassembly->statements[i+2]->end);
+	printf_instruction(fd, disassembly, disassembly->statements[i+2]->end, 0);
 	fputc(')', fd);
 	i+=3;// skip other instructions completely
 	break;
       default:
-	printf_instruction(fd, disassembly, statement->end);
+	printf_instruction(fd, disassembly, statement->end, 0);
 	break;
     }
 

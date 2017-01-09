@@ -54,6 +54,7 @@ struct script_definition{
   uint8_t system:1;
   uint8_t rpc:1;
   uint8_t implemented:1;
+  uint8_t in_ancestor:1;
 };
 
 struct class_definition{

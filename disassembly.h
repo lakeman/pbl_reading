@@ -33,8 +33,12 @@ enum statement_type{
   do_until,
   loop_while,
   loop_until,
-  loop,
-  next,
+  jump_loop,
+  jump_next,
+  jump_break,
+  jump_continue,
+  jump_else,
+  jump_elseif,
   for_init,
   for_jump,
   for_step,
@@ -85,12 +89,28 @@ enum token_types{
 #define OPERATOR_GE " >= "
 #define OPERATOR_LE " <= "
 
+#define OPERATOR_CAT " + "
 #define OPERATOR_ADD " + "
 #define OPERATOR_SUB " - "
 #define OPERATOR_MULT " * "
 #define OPERATOR_DIV " / "
 #define OPERATOR_POWER " ^ "
 #define OPERATOR_NEGATE "-"
+#define OPERATOR_AND " and "
+#define OPERATOR_OR " or "
+#define OPERATOR_NOT "not "
+
+#define PRECEDENCE_NEGATE 1
+#define PRECEDENCE_POWER 2
+#define PRECEDENCE_MULT 3
+#define PRECEDENCE_DIV 3
+#define PRECEDENCE_CAT 4
+#define PRECEDENCE_ADD 4
+#define PRECEDENCE_SUB 4
+#define PRECEDENCE_COMPARE 5
+#define PRECEDENCE_NOT 6
+#define PRECEDENCE_AND 7
+#define PRECEDENCE_OR 8
 
 #define OPERATOR_ASSIGNINCR "++"
 #define OPERATOR_ASSIGNDECR "--"
@@ -98,17 +118,17 @@ enum token_types{
 #define OPERATOR_ASSIGNSUB " -= "
 #define OPERATOR_ASSIGNMULT " *= "
 
-#define BIN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, "(", STACK, 1, OPERATOR_##NAME, STACK, 0, ")")
-#define BIN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##ASSIGN_##TYPE, 2, stack_action, 2, STACK, 1, OPERATOR_ASSIGN##NAME, STACK, 0, END)
-#define UN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 1, "(", OPERATOR_##NAME, STACK, 0, ")")
-#define UN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_action, 1, STACK, 0, OPERATOR_ASSIGN##NAME, END)
-#define CONVERT(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 1, stack_tweak_indirect, 0, STACK, 0)
-#define CONVERT2(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 2, stack_tweak_indirect, 0, STACK, 0)
-#define ASSIGN(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 1, stack_action, 2, STACK, 1, " = ", STACK, 0, END)
-#define ASSIGN2(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 2, stack_action, 2, STACK, 1, " = ", STACK, 0, END)
-#define CMP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, "(", STACK, 1, OPERATOR_##NAME, STACK, 0, ")")
-#define CMP2(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_result, 2, "(", STACK, 1, OPERATOR_##NAME, STACK, 0, ")")
-#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK, #FUNC "(", STACK_CSV, ")")
+#define BIN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, PRECEDENCE_##NAME, STACK, 1, OPERATOR_##NAME, STACK, 0)
+#define BIN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##ASSIGN_##TYPE, 2, stack_action, 2, 0, STACK, 1, OPERATOR_ASSIGN##NAME, STACK, 0, END)
+#define UN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 1, PRECEDENCE_##NAME, OPERATOR_##NAME, STACK, 0)
+#define UN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_action, 1, 0, STACK, 0, OPERATOR_ASSIGN##NAME, END)
+#define CONVERT(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 1, stack_tweak_indirect, 0, 0, STACK, 0)
+#define CONVERT2(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 2, stack_tweak_indirect, 0, 0, STACK, 0)
+#define ASSIGN(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 1, stack_action, 2, 0, STACK, 1, " = ", STACK, 0, END)
+#define ASSIGN2(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 2, stack_action, 2, 0, STACK, 1, " = ", STACK, 0, END)
+#define CMP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, PRECEDENCE_COMPARE, STACK, 1, OPERATOR_##NAME, STACK, 0)
+#define CMP2(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_result, 2, PRECEDENCE_COMPARE, STACK, 1, OPERATOR_##NAME, STACK, 0)
+#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK, 0, #FUNC "(", STACK_CSV, ")")
 
 // define an enum with unique instruction id's
 #define DEFINE_OP(NAME,ARGS, ...) NAME##_##ARGS,
@@ -142,6 +162,7 @@ struct pcode_def{
   const char *name;
   const char *description;
   unsigned args;
+  unsigned precedence;
   enum stack_kind stack_kind;
   unsigned stack_arg;
   const char *tokens[];
