@@ -21,21 +21,34 @@ struct instruction{
   uint8_t end:1;
 };
 
+struct scope{
+  struct scope *parent;
+  struct statement *start;
+  struct statement *end;
+  struct statement *break_dest; // end if, catch, exit ...
+  struct statement *continue_dest; // else, continue, finally, ...
+  uint8_t indent:1;
+  uint8_t do_label:1;
+  uint8_t finally_label:1;
+  uint8_t endif_label:1;
+};
+
 // special cases;
+// TODO bit flags?
 enum statement_type{
   expression = 0,
   generated,
   mem_append,
+  jump_true,
+  jump_false,
   if_then,
-  if_then_endif,
   do_while,
-  if_not_then,
   do_until,
   loop_while,
   loop_until,
   jump_loop,
   jump_next,
-  jump_break,
+  jump_exit,
   jump_continue,
   jump_else,
   jump_elseif,
@@ -54,11 +67,15 @@ struct statement{
   struct statement *prev;
   struct instruction *start;
   struct instruction *end;
+  struct scope *scope;
+  unsigned start_line_number;
+  unsigned end_line_number;
+  unsigned start_offset;
+  unsigned end_offset;
   enum statement_type type;
   struct statement *branch;
   unsigned destination_count;
   unsigned classified_count;
-  int indent_delta;
 };
 
 enum token_types{

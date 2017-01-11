@@ -8,8 +8,9 @@
 #include "output.h"
 
 void __assert_fail(const char * assertion, const char * file, unsigned int line, const char * function) {
-    fprintf(stderr, "Assert: (%s) failed at %s:%d in function %s\n", assertion, file, line, function);
-    exit(-1);
+  fflush(stdout);
+  fprintf(stderr, "Assert: (%s) failed at %s:%d in function %s\n", assertion, file, line, function);
+  exit(-1);
 }
 
 static void callback(struct lib_entry *entry, void *UNUSED(context)){
