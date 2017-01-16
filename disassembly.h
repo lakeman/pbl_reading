@@ -147,7 +147,7 @@ enum token_types{
 #define ASSIGN2(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 2, stack_action, 2, 0, STACK, 1, " = ", STACK, 0, END)
 #define CMP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, PRECEDENCE_COMPARE, STACK, 1, OPERATOR_##NAME, STACK, 0)
 #define CMP2(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_result, 2, PRECEDENCE_COMPARE, STACK, 1, OPERATOR_##NAME, STACK, 0)
-#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK, 0, #FUNC "(", STACK_CSV, ")")
+#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK, 0, "::" #FUNC "(", STACK_CSV, ")")
 
 // define an enum with unique instruction id's
 #define DEFINE_OP(NAME,ARGS, ...) NAME##_##ARGS,

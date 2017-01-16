@@ -564,8 +564,11 @@ struct class_group *class_parse(struct lib_entry *entry){
 
       static uint16_t expect5[] = {16,50,11};
       read_expecting(entry, expect5, 3);
-      read_type_defs(entry, class_group, &class_def->variables);
-      debug_type_names("method returns?", class_group, &class_def->variables);
+
+      // if imports flags &2, value is index in external refs, otherwise value is a counter & the method is in this group
+      read_type_defs(entry, class_group, &class_def->imports);
+      debug_type_names("method import table", class_group, &class_def->imports);
+
       read_expecting(entry, expect5, 3);
       read_type_defs(entry, class_group, &class_def->instance_variables);
       class_def->pub.instance_variable_count = class_def->instance_variables.count;

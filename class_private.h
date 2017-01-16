@@ -53,7 +53,7 @@ struct class_def_private{
   struct class_definition pub;
   const struct pbtype_header *type_header;
   const struct pbclass_header *header;
-  struct type_defs variables; //? better name ?
+  struct type_defs imports;
   struct type_defs instance_variables;
   const struct pbvalue *instance_values;
   const struct pbindirect_ref *indirect_refs;

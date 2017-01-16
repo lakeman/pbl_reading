@@ -644,8 +644,10 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
     }
   }
 
-  if (stack_ptr)
+  if (stack_ptr){
+    fflush(stdout);
     WARNF("Stack pointer (%u) is not zero at the end of %s!", stack_ptr, script->name);
+  }
 
   disassembly->instruction_count = instruction_count;
   disassembly->instructions = pool_alloc_array(pool, struct instruction *, instruction_count+1);
@@ -991,15 +993,13 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       case FUNC_CLASS:{
 	uint16_t type = inst->args[1];
 	uint16_t id = inst->args[0];
-	if ((type & 0xC000) == 0x8000){
-	  struct class_def_private *class_def = get_class_by_type(group, type);
-	  if (class_def){
-	    assert(id < class_def->variables.count);
-	    fprintf(fd, "%s", class_def->variables.names[id]);
-	    break;
-	  }
+	if (type == 0x8001){
+	  struct class_def_private *class_def = (struct class_def_private *)disassembly->class_def;
+	  assert(id < class_def->imports.count);
+	  fprintf(fd, "%s", class_def->imports.names[id]);
+	  break;
 	}
-	fprintf(fd, "%s_%u", get_type_name(group, type), id);
+	fprintf(fd, "::%s_%u", get_type_name(group, type), id);
       }break;
 
       case END:
