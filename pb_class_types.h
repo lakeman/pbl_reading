@@ -50,6 +50,17 @@ enum pbtype{
   pbvalue_byte
 };
 
+struct pb_datetime{
+  uint32_t millisecond;
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t second;
+  uint8_t day_of_week;
+};
+
 struct pbfile_header{
   uint16_t compiler_version;
   uint16_t format_version;

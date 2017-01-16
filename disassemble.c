@@ -6,6 +6,10 @@
 #include "debug.h"
 #include "pool_alloc.h"
 
+static const char *endif_label = "end if";
+static const char *finally_label = "finally";
+//static const char *do_label = "do";
+
 static void dump_pcode_inst(FILE *fd, struct instruction *inst);
 static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst, uint8_t precedence);
 
@@ -188,6 +192,7 @@ static struct scope *insert_scope(struct disassembly *disassembly, struct statem
   }
 
   struct scope *scope = pool_alloc_type(disassembly->pool, struct scope);
+  memset(scope, 0, sizeof *scope);
   scope->start = start;
   scope->end = end;
   scope->parent = parent_scope;
@@ -311,7 +316,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
       scope->indent = 1;
       if_test->type = if_then;
       if_test->branch->classified_count++;
-      scope->endif_label = 1;
+      scope->end_label = endif_label;
     }
   }
 }
@@ -351,7 +356,6 @@ static void link_destinations(struct disassembly *disassembly){
 	  unsigned finally_offset = end->end->args[0];
 	  for (j=i+1;j<disassembly->statement_count;j++){
 	    if (disassembly->statements[j]->start->offset == finally_offset){
-	      // TODO insert "finally" label
 	      finally = disassembly->statements[j];
 	      end_finally = end->prev;
 
@@ -378,7 +382,7 @@ static void link_destinations(struct disassembly *disassembly){
 	if (finally){
 	  struct scope *scope = insert_scope(disassembly, finally, end_finally);
 	  scope->indent = 1;
-	  scope->finally_label = 1;
+	  scope->begin_label = finally_label;
 	}
 	// the catch block should look like a standard if then elseif... so we don't need a special case here
 
@@ -435,7 +439,7 @@ find_dest:
       // try to identify else's and elseif's...
       if (jmp->scope
       && jmp->start->args[0] > jmp->start_offset
-      && jmp->scope->endif_label
+      && jmp->scope->end_label == endif_label
       && jmp->scope->end == jmp){
 	struct statement *nxt = jmp->next;
 
@@ -458,7 +462,7 @@ find_dest:
 	  // else?
 	  struct scope *scope = insert_scope(disassembly, nxt, jmp->branch->prev);
 	  if (scope){
-	    scope->endif_label = 1;
+	    scope->end_label = endif_label;
 	    scope->indent = 1;
 	    jmp->type = jump_else;
 	  }
@@ -469,7 +473,7 @@ find_dest:
 	  jmp->branch->classified_count ++;
 	  struct scope *scope = jmp->scope;
 	  scope->end = jmp->prev;
-	  scope->endif_label = 0;
+	  scope->end_label = NULL;
 	  jmp->scope = scope->parent;
 	  continue;
 	}
@@ -605,10 +609,10 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
 	  statement->type=exception_try;
 	  break;
 
-	case SM_CATCH_EXCEPTION_0:
+	//case SM_CATCH_EXCEPTION_0:
 	  // this will be followed by a jump_if, but we can easily classify it now.
-	  statement->type=exception_catch;
-	  break;
+	  //statement->type=exception_catch;
+	  //break;
 
 	case SM_ASSIGN_BLOB_1:
 	case SM_ASSIGN_STRING_1:{
@@ -769,7 +773,23 @@ static void printf_res(FILE *fd, struct class_group_private *group, struct data_
       fputs(buff, fd);
       return;
     }
-    // case 6: datetime.... probably need to know if the caller needs date / time or both...
+    case 6: {
+      const struct pb_datetime *datetime = ptr;
+      // probably enough to distinguish dates and times...
+      if (datetime->year == 63636 && datetime->month == 255){
+	fprintf(fd, "%02d:%02d:%02d.%06d",
+	  datetime->hour,
+	  datetime->minute,
+	  datetime->second,
+	  datetime->millisecond);
+      }else{
+	fprintf(fd, "%04d-%02d-%02d",
+	  datetime->year + 1900,
+	  datetime->month + 1,
+	  datetime->day);
+      }
+      return ;
+    }
     case 12:{ // property reference
       const struct pbprop_ref *ref = (struct pbprop_ref *)ptr;
       const char *name = get_table_string(group, table, ref->name_offset);
@@ -897,6 +917,12 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	}
 	break;
 
+      case ARG_BOOL:
+	i = (int)(*(++tokens));
+	assert(i < inst->definition->args);
+	fprintf(fd, "%s", inst->args[i] ? "true" : "false");
+	break;
+
       case GLOBAL:
       case ARG_INT:
 	i = (int)(*(++tokens));
@@ -986,6 +1012,12 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
     fputs(")", fd);
 }
 
+static void fputeol(FILE *fd, int i){
+  fputc('\n', fd);
+  while(i-->0)
+    fputs("    ", fd);
+}
+
 void dump_statements(FILE *fd, struct disassembly *disassembly){
   if (IFDEBUG(DISASSEMBLY))
     dump_script_resources(fd, disassembly->group, disassembly->script);
@@ -1002,13 +1034,21 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
     if (statement->scope != current_scope){
       struct scope *entering = statement->scope;
       while(entering!=current_scope){
+	if (!entering){
+	  fflush(fd);
+	  DEBUGF(DISASSEMBLY, "Did not find parent scope %p!", current_scope);
+	}
 	assert(entering);
+
+	if (entering->begin_label){
+	  if (line < statement->start_line_number){
+	    line++;
+	    fputeol(fd, indent);
+	  }
+	  fprintf(fd, "%s;", entering->begin_label);
+	}
 	if (entering->indent)
 	  indent++;
-	if (entering->do_label)
-	  fprintf(fd, "do;");
-	if (entering->finally_label)
-	  fprintf(fd, "finally;");
 	entering = entering->parent;
       }
       current_scope = statement->scope;
@@ -1016,22 +1056,20 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
 
     assert(indent>=0);
 
-    while (line < statement->start_line_number){
-      fputc('\n', fd);
-      line++;
-      int j;
-      for(j=0;j<indent;j++)
-	fputs("    ", fd);
-    }
-
     if (statement->classified_count < statement->destination_count){
-      fprintf(fd, "Offset_%u:\n", statement->start->offset);
-      int j;
-      for(j=0;j<indent;j++)
-	fputs("    ", fd);
+      fprintf(fd, "Offset_%u:", statement->start->offset);
+      if (line < statement->start_line_number){
+	line++;
+	fputeol(fd, indent);
+      }
     }
 
     if (IFDEBUG(DISASSEMBLY) || statement->type != generated){
+      while (line < statement->start_line_number){
+	line++;
+	fputeol(fd, indent);
+      }
+
       // special cases;
       switch(statement->type){
 	case exception_try:	fputs("try;", fd); break;
@@ -1093,8 +1131,13 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
     while (current_scope && current_scope->end == statement){
       if (current_scope->indent)
 	indent--;
-      if (current_scope->endif_label)
-	fprintf(fd, "end if;");
+      if (current_scope->end_label){
+	if (!statement->next || line < statement->next->start_line_number){
+	  line++;
+	  fputeol(fd, indent);
+	}
+	fprintf(fd, "%s;", current_scope->end_label);
+      }
       current_scope = current_scope->parent;
     }
   }

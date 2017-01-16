@@ -27,10 +27,9 @@ struct scope{
   struct statement *end;
   struct statement *break_dest; // end if, catch, exit ...
   struct statement *continue_dest; // else, continue, finally, ...
+  const char *begin_label;
+  const char *end_label;
   uint8_t indent:1;
-  uint8_t do_label:1;
-  uint8_t finally_label:1;
-  uint8_t endif_label:1;
 };
 
 // special cases;
@@ -83,6 +82,7 @@ enum token_types{
   STACK_CSV,
   STACK_DOT_CSV,
   FUNC_CLASS,
+  ARG_BOOL,
   ARG_INT,
   ARG_CSV,
   ARG_LONG,
