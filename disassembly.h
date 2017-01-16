@@ -117,17 +117,19 @@ enum token_types{
 #define OPERATOR_OR " or "
 #define OPERATOR_NOT "not "
 
-#define PRECEDENCE_NEGATE 1
-#define PRECEDENCE_POWER 2
-#define PRECEDENCE_MULT 3
-#define PRECEDENCE_DIV 3
-#define PRECEDENCE_CAT 4
-#define PRECEDENCE_ADD 4
-#define PRECEDENCE_SUB 4
-#define PRECEDENCE_COMPARE 5
-#define PRECEDENCE_NOT 6
-#define PRECEDENCE_AND 7
-#define PRECEDENCE_OR 8
+// note the gaps, as precedence is decremented when testing RHS of a binary operation
+// to detect when left to right rule has been violated. eg a - (b + c)
+#define PRECEDENCE_NEGATE 2
+#define PRECEDENCE_POWER 4
+#define PRECEDENCE_MULT 6
+#define PRECEDENCE_DIV 6
+#define PRECEDENCE_CAT 8
+#define PRECEDENCE_ADD 8
+#define PRECEDENCE_SUB 8
+#define PRECEDENCE_COMPARE 10
+#define PRECEDENCE_NOT 12
+#define PRECEDENCE_AND 14
+#define PRECEDENCE_OR 16
 
 #define OPERATOR_ASSIGNINCR "++"
 #define OPERATOR_ASSIGNDECR "--"

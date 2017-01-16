@@ -866,7 +866,11 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       case STACK:{
 	i=(int)(*(++tokens));
 	assert(i<inst->stack_count);
-	printf_instruction(fd, disassembly, inst->stack[i], this_precedence);
+	uint8_t p = this_precedence;
+	// decrement precendence to detect left to right rule violation, eg a - (b + c)
+	if (p && inst->stack_count==2 && i==0)
+	  p--;
+	printf_instruction(fd, disassembly, inst->stack[i], p);
 	break;
       }
 
@@ -1115,6 +1119,14 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
 	  fputc(')', fd);
 	  i+=3;// skip other instructions completely
 	  break;
+	case mem_append:{
+	  struct instruction *lhs = statement->end->stack[1];
+	  struct instruction *rhs = statement->end->stack[0]->stack[0];
+	  printf_instruction(fd, disassembly, lhs, 0);
+	  fputs(" += ", fd);
+	  printf_instruction(fd, disassembly, rhs, 0);
+	  fputc(';', fd);
+	}break;
 	default:
 	  printf_instruction(fd, disassembly, statement->end, 0);
 	  break;
@@ -1123,7 +1135,6 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
       // For now just add comments for known special cases;
       switch(statement->type){
 	case generated:		fprintf(fd, " /* GENERATED? */"); break;
-	case mem_append:		fprintf(fd, " /* += */"); break;
 	default: break;
       }
     }
