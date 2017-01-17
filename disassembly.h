@@ -24,12 +24,13 @@ struct instruction{
 struct scope{
   struct scope *parent;
   struct statement *start;
+  struct statement *indent_start;
+  struct statement *indent_end;
   struct statement *end;
   struct statement *break_dest; // end if, catch, exit ...
   struct statement *continue_dest; // else, continue, finally, ...
   const char *begin_label;
   const char *end_label;
-  uint8_t indent:1;
 };
 
 // special cases;
@@ -95,6 +96,7 @@ enum token_types{
   LOCAL,
   GLOBAL,
   SHARED,
+  EXT,
   END,
   MAX_TOKEN
 };

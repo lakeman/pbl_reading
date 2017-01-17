@@ -6,9 +6,30 @@
 #include "debug.h"
 #include "pool_alloc.h"
 
+/* Outline of the disassembly process;
+ *
+ * - identify each instruction and the number of arguments it has
+ *
+ * - emulate the effect each instruction has on the stack so we can link them together in something like SSA form
+ *
+ * - identify the start and end of each "statement", based on when the stack is empty
+ *   (or perhaps by knowing which instructions are supposed to end a statement)
+ *
+ * - identify control flow that has an unambiguous source code representation (if then, do until, loop (while|until), try, ... )
+ *
+ * - attempt to classify ambiguous control flow (for, do while, else, elseif, continue, exit, ...)
+ *
+ * - insert scope objects to describe indentation regions and where additional labels should be inserted (end if, do, finally)
+ *   since scope objects must stack without overlapping, the order of scope object creation is used to reject
+ *   interpretations of control flow with multiple possible representations where this would create an inconsistency.
+ *
+ * Hopefully, all conditional branches will be correctly identified. With unconditional goto's remaining only where they
+ * existed in the original source code.
+ */
+
 static const char *endif_label = "end if";
 static const char *finally_label = "finally";
-//static const char *do_label = "do";
+static const char *do_label = "do";
 
 static void dump_pcode_inst(FILE *fd, struct instruction *inst);
 static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst, uint8_t precedence);
@@ -142,13 +163,18 @@ stack_result:
 // insert a lexical scope and update instructions to point to that scope
 // a child scope must be completely contained within it's parent scope or the insert will fail
 // Make sure to insert unambiguous scopes first, letting jumps that are likely to be actual goto's fall out last.
-static struct scope *insert_scope(struct disassembly *disassembly, struct statement *start, struct statement *end){
+static struct scope *insert_scope(struct disassembly *disassembly,
+  struct statement *start, struct statement *indent_start,
+  struct statement *indent_end, struct statement *end){
+
+  assert(start->start_offset < end->end_offset);
+  assert((indent_start ? 1 : 0) == (indent_end ? 1 : 0));
+  // Don't indent if the range is empty
+  if (indent_start && indent_start->start_offset > indent_end->end_offset)
+    indent_start = indent_end = NULL;
+
   struct scope *parent_scope = start->scope;
   DEBUGF(DISASSEMBLY, "Attempting to insert scope from %u to %u", start->start_offset, end->end_offset);
-  if (end->end_offset < start->start_offset){
-    DEBUGF(DISASSEMBLY, "Ignoring new scope");
-    return NULL;
-  }
 
   // if multiple scopes already begin or end here, pop scopes that have a smaller range
   DEBUGF(DISASSEMBLY, "Current parent %p (%u %u)",
@@ -194,6 +220,8 @@ static struct scope *insert_scope(struct disassembly *disassembly, struct statem
   struct scope *scope = pool_alloc_type(disassembly->pool, struct scope);
   memset(scope, 0, sizeof *scope);
   scope->start = start;
+  scope->indent_start = indent_start;
+  scope->indent_end = indent_end;
   scope->end = end;
   scope->parent = parent_scope;
 
@@ -220,10 +248,29 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
   struct statement *if_test = disassembly->statements[statement_number];
   if (!if_test->branch)
     return;
+
+  // do ... loop (while|until), the conditional branch jumps back to the start
+  if (if_test->branch->start_offset < if_test->start_offset){
+    struct scope *scope = insert_scope(disassembly, if_test->branch, if_test->branch, if_test->prev, if_test);
+    if (scope){
+      if (if_test->type == jump_false)
+	if_test->type = loop_until;
+      else
+	if_test->type = loop_while;
+      scope->begin_label = do_label;
+      scope->break_dest = if_test->next;
+      scope->continue_dest = if_test;
+      if_test->branch->classified_count++;
+      return;
+    }
+  }
+
   struct statement *prior = if_test->branch->prev;
 
-  // do loops end with a jump back to the start
-  if (prior && prior->type == jump_goto){
+  // do (while|until) ... loop, ends with a jump back to the start
+  if (if_test->branch->start_offset > if_test->start_offset
+    && prior && prior->type == jump_goto){
+
     unsigned dest_offset = prior->end->args[0];
     if (dest_offset == if_test->start->offset){
       if (if_test->type == jump_false)
@@ -232,9 +279,8 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
 	if_test->type = do_until;
 
       // loop body
-      struct scope *scope = insert_scope(disassembly, if_test->next, prior->prev);
+      struct scope *scope = insert_scope(disassembly, if_test, if_test->next, prior->prev, prior);
       assert(scope);
-      scope->indent = 1;
       scope->break_dest = if_test->branch;
       scope->continue_dest = prior;
 
@@ -254,28 +300,32 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
      * goto step; end if
      */
 
+    struct statement *init;
+    struct statement *step;
+    struct statement *jmp;
+
     if (if_test->type == jump_false
+      && if_test->branch->start_offset > if_test->start_offset
       && statement_number >= 3
-      && disassembly->statements[statement_number -3]->start_line_number == if_test->end_line_number
-      && dest_offset == disassembly->statements[statement_number -1]->start->offset
-      && disassembly->statements[statement_number -2]->type == jump_goto
-      && disassembly->statements[statement_number -2]->end->args[0] == if_test->start->offset
+      && (init = disassembly->statements[statement_number -3])->start_line_number == if_test->end_line_number
+      && dest_offset == (step = disassembly->statements[statement_number -1])->start->offset
+      && (jmp = disassembly->statements[statement_number -2])->type == jump_goto
+      && jmp->end->args[0] == if_test->start->offset
       // with a C style for loop, this would be enough. For PB's basic style we should be more explicit;
       // && statement_number -3 == SM_ASSIGN_[TYPE]
       // && statement_number -1 == SM_INCR_[TYPE] || SM_ADDASSIGN_[TYPE]
       // && same variable in all cases
       ){
-      disassembly->statements[statement_number -3]->type = for_init;
-      disassembly->statements[statement_number -2]->type = for_jump;
-      disassembly->statements[statement_number -1]->type = for_step;
+      init->type = for_init;
+      jmp->type = for_jump;
+      step->type = for_step;
       if_test->type = for_test;
       if_test->classified_count++;
-      disassembly->statements[statement_number -1]->classified_count++;
+      step->classified_count++;
 
       // loop body
-      struct scope *scope = insert_scope(disassembly, if_test->next, prior->prev);
+      struct scope *scope = insert_scope(disassembly, init, if_test->next, prior->prev, prior);
       assert(scope);
-      scope->indent = 1;
       scope->break_dest = if_test->branch;
       scope->continue_dest = prior;
 
@@ -285,13 +335,16 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
     }
   }
 
-  if (if_test->type == jump_false){
+  if (if_test->type == jump_false
+    && if_test->branch->start_offset > if_test->start_offset){
     // one line if test?
     unsigned i=statement_number+1;
     // TODO, only skip generated statements? (eg SM_JUMP_1 to SM_RETURN_0)
     while(i < disassembly->statement_count && disassembly->statements[i]->end_line_number == if_test->start_line_number)
       i++;
     if (i>statement_number+1 && if_test->branch == disassembly->statements[i]){
+      struct scope *scope = insert_scope(disassembly, if_test, NULL, NULL, prior);
+      assert(scope);
       if_test->type = if_then;
       if_test->branch->classified_count++;
       return;
@@ -299,6 +352,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
   }
 
   if(if_test->type == jump_true
+    && if_test->branch->start_offset > if_test->start_offset
     && disassembly->statements[disassembly->statement_count -1]->end_line_number == if_test->start_line_number){
     // guessing that this looks like generated code to return message.returnvalue at the end of an event
     // TODO more explicit matching of the expected code sequence.
@@ -310,14 +364,14 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
     return;
   }
 
-  if (if_test->type == jump_false){
-    struct scope *scope = insert_scope(disassembly, if_test->next, prior);
-    if (scope){
-      scope->indent = 1;
-      if_test->type = if_then;
-      if_test->branch->classified_count++;
-      scope->end_label = endif_label;
-    }
+  // plain if test
+  if (if_test->type == jump_false
+    && if_test->branch->start_offset > if_test->start_offset){
+    struct scope *scope = insert_scope(disassembly, if_test, if_test->next, prior, prior);
+    assert(scope);
+    if_test->type = if_then;
+    if_test->branch->classified_count++;
+    scope->end_label = endif_label;
   }
 }
 
@@ -373,21 +427,18 @@ static void link_destinations(struct disassembly *disassembly){
 	assert(try_end->end->definition->id == SM_JUMP_1);
 	assert(try_end->end->args[0] == end_offset);
 	
-	// indent the guarded code (should be some??)
+	// indent the guarded code (should be some??) with a scope that covers the entire try block
 	if (ptr != try_end){
-	  struct scope *scope = insert_scope(disassembly, ptr->next, try_end);
-	  scope->indent = 1;
+	  struct scope *scope = insert_scope(disassembly, ptr, ptr->next, try_end, end);
+	  assert(scope);
 	}
 	// scope for the finally block (if any)
 	if (finally){
-	  struct scope *scope = insert_scope(disassembly, finally, end_finally);
-	  scope->indent = 1;
+	  struct scope *scope = insert_scope(disassembly, finally, finally, end_finally, end_finally);
+	  assert(scope);
 	  scope->begin_label = finally_label;
 	}
 	// the catch block should look like a standard if then elseif... so we don't need a special case here
-
-	// scope for the whole try / end try block
-	insert_scope(disassembly, ptr, end);
 	continue;
       }
       case exception_catch:
@@ -437,13 +488,16 @@ find_dest:
     struct statement *jmp = disassembly->statements[i - 1];
     if (jmp->type == jump_goto && jmp->branch){
       // try to identify else's and elseif's...
-      if (jmp->scope
+      struct scope *if_scope = jmp->scope;
+      if (if_scope
       && jmp->start->args[0] > jmp->start_offset
-      && jmp->scope->end_label == endif_label
-      && jmp->scope->end == jmp){
+      && if_scope->start->type == if_then
+      && if_scope->end_label == endif_label
+      && if_scope->indent_end == jmp){
 	struct statement *nxt = jmp->next;
 
 	if (nxt->type == if_then
+	  && nxt->branch
 	  && nxt->start_line_number == jmp->start_line_number){
 
 	  struct statement *possible_else = nxt->branch->prev;
@@ -458,23 +512,32 @@ find_dest:
 	  }
 	}
 
+	// still unclassified?
 	if (jmp->type == jump_goto){
-	  // else?
-	  struct scope *scope = insert_scope(disassembly, nxt, jmp->branch->prev);
-	  if (scope){
-	    scope->end_label = endif_label;
-	    scope->indent = 1;
+	  // TODO check if a continue could be a better choice based on which blank line the end if will be placed on
+
+	  // empty else? special case, leave the end if where it is but don't indent the else
+	  if (nxt == jmp->branch){
 	    jmp->type = jump_else;
+	    jmp->branch->classified_count ++;
+	    if_scope->indent_end = jmp->prev;
+	    continue;
+	  }else{
+	    // else?
+	    // (the range doesn't include the else, or the insert would fail)
+	    struct scope *scope = insert_scope(disassembly, nxt, nxt, jmp->branch->prev, jmp->branch->prev);
+	    if (scope){
+	      scope->end_label = endif_label;
+	      jmp->type = jump_else;
+	    }
 	  }
 	}
 
 	// any of the above, shrink the if test scope to exclude the else and drop the end if label
 	if (jmp->type != jump_goto){
 	  jmp->branch->classified_count ++;
-	  struct scope *scope = jmp->scope;
-	  scope->end = jmp->prev;
-	  scope->end_label = NULL;
-	  jmp->scope = scope->parent;
+	  if_scope->indent_end = jmp->prev;
+	  if_scope->end_label = NULL;
 	  continue;
 	}
       }
@@ -482,8 +545,23 @@ find_dest:
       // try to reclassify goto's as continue, exit
       {
 	struct scope *scope = jmp->scope;
-	while(scope && !scope->continue_dest)
+	struct statement *pop_try = jmp->prev;
+	while(scope){
+	  if (scope->start->type == exception_try){
+	    if (pop_try->start->definition->id == SM_POP_TRY_0){
+	      // skip exception scopes only if the previous instruction will pop out of it.
+	      pop_try->type = generated;
+	      pop_try = pop_try->prev;
+	      scope = scope->parent;
+	      continue;
+	    }
+	    break;
+	  }else if(scope->continue_dest)
+	    // skip any non-loop scopes (without an exit location)
+	    break;
 	  scope = scope->parent;
+	}
+
 	if (scope && jmp->branch == scope->break_dest){
 	  jmp->type = jump_exit;
 	  jmp->branch->classified_count++;
@@ -590,19 +668,11 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
 	  break;
 
 	case SM_JUMPTRUE_1:
-	  if (inst->args[0] > inst->offset){
-	    statement->type=jump_true;
-	  }else{
-	    statement->type=loop_while;
-	  }
+	  statement->type=jump_true;
 	  break;
 
 	case SM_JUMPFALSE_1:
-	  if (inst->args[0] > inst->offset){
-	    statement->type=jump_false;
-	  }else{
-	    statement->type=loop_until;
-	  }
+	  statement->type=jump_false;
 	  break;
 
 	case SM_PUSH_TRY_2:
@@ -908,6 +978,15 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	fputs(disassembly->group->global_variables[i]->name, fd);
 	break;
 
+      case EXT:{
+	i = (int)(*(++tokens));
+	assert(i < inst->definition->args);
+	i = inst->args[i];
+	struct class_group_private *group = (struct class_group_private *)disassembly->group;
+	assert(i<group->ext_ref_count);
+	fputs(group->ref_names[i], fd);
+      }break;
+
       case TYPE:{
 	i = (int)(*(++tokens));
 	assert(i < inst->definition->args);
@@ -993,7 +1072,8 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       case FUNC_CLASS:{
 	uint16_t type = inst->args[1];
 	uint16_t id = inst->args[0];
-	if (type == 0x8001){
+	// actual value might be random and meaningless... not really sure.
+	if ((type & 0xC000) == 0x8000){
 	  struct class_def_private *class_def = (struct class_def_private *)disassembly->class_def;
 	  assert(id < class_def->imports.count);
 	  fprintf(fd, "%s", class_def->imports.names[id]);
@@ -1016,63 +1096,66 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
     fputs(")", fd);
 }
 
-static void fputeol(FILE *fd, int i){
+struct print_state{
+  unsigned line;
+  int indent;
+  struct statement *statement;
+  struct scope *scopes[64];
+  unsigned scope_count;
+};
+
+static void fputeol(FILE *fd, struct print_state *state){
   fputc('\n', fd);
+  state->line++;
+
+  //assert(state->indent>=0);
+  int i = state->indent;
   while(i-->0)
     fputs("    ", fd);
+}
+
+// recursive, so we can process the top parent scope first
+static unsigned begin_scope(FILE *fd, struct print_state *state, struct scope *scope){
+  if (!scope)
+    return 0;
+
+  unsigned i = begin_scope(fd, state, scope->parent);
+  if (i<64)
+    state->scopes[i++]=scope;
+
+  if (scope->start == state->statement){
+    if (scope->begin_label){
+      if (state->line < state->statement->start_line_number)
+	fputeol(fd, state);
+      fprintf(fd, "%s;", scope->begin_label);
+    }
+  }
+
+  if (scope->indent_start == state->statement)
+    state->indent++;
+  return i;
 }
 
 void dump_statements(FILE *fd, struct disassembly *disassembly){
   if (IFDEBUG(DISASSEMBLY))
     dump_script_resources(fd, disassembly->group, disassembly->script);
   unsigned i;
-  unsigned line=1;
-  int indent=0;
-  struct scope *current_scope = NULL;
+  struct print_state state = {.line=1, .indent=0};
 
   for (i=0;i<disassembly->statement_count;i++){
-    struct statement *statement = disassembly->statements[i];
-    //dump_instruction(fd, statement->end);
-    //fprintf(fd, ";\n");
+    struct statement *statement = state.statement = disassembly->statements[i];
 
-    if (statement->scope != current_scope){
-      struct scope *entering = statement->scope;
-      while(entering!=current_scope){
-	if (!entering){
-	  fflush(fd);
-	  DEBUGF(DISASSEMBLY, "Did not find parent scope %p!", current_scope);
-	}
-	assert(entering);
-
-	if (entering->begin_label){
-	  if (line < statement->start_line_number){
-	    line++;
-	    fputeol(fd, indent);
-	  }
-	  fprintf(fd, "%s;", entering->begin_label);
-	}
-	if (entering->indent)
-	  indent++;
-	entering = entering->parent;
-      }
-      current_scope = statement->scope;
-    }
-
-    assert(indent>=0);
+    state.scope_count = begin_scope(fd, &state, statement->scope);
 
     if (statement->classified_count < statement->destination_count){
       fprintf(fd, "Offset_%u:", statement->start->offset);
-      if (line < statement->start_line_number){
-	line++;
-	fputeol(fd, indent);
-      }
+      if (state.line < statement->start_line_number)
+	fputeol(fd, &state);
     }
 
     if (IFDEBUG(DISASSEMBLY) || statement->type != generated){
-      while (line < statement->start_line_number){
-	line++;
-	fputeol(fd, indent);
-      }
+      while (state.line < statement->start_line_number)
+	fputeol(fd, &state);
 
       // special cases;
       switch(statement->type){
@@ -1110,6 +1193,8 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
 	  fputs(";", fd);
 	  break;
 	case for_init:
+	  // TODO for [var] = [init] to [end] [step [N]]
+	  // for now, C style;
 	  fputs("for(", fd);
 	  printf_instruction(fd, disassembly, statement->end, 0);
 	  fputc(' ', fd);
@@ -1139,17 +1224,22 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
       }
     }
 
-    while (current_scope && current_scope->end == statement){
-      if (current_scope->indent)
-	indent--;
-      if (current_scope->end_label){
-	if (!statement->next || line < statement->next->start_line_number){
-	  line++;
-	  fputeol(fd, indent);
+    struct scope *scope = statement->scope;
+    while(scope){
+      if (scope->indent_end == statement){
+	state.indent--;
+	if (state.indent < 0){
+	  fflush(fd);
+	  DEBUGF(DISASSEMBLY, "Negative indent???");
 	}
-	fprintf(fd, "%s;", current_scope->end_label);
       }
-      current_scope = current_scope->parent;
+      if (scope->end == statement && scope->end_label){
+	if (!statement->next || state.line < statement->next->start_line_number)
+	  fputeol(fd, &state);
+	// TODO if there's no room for an end of line here, we should have popped all indents first.... somehow...
+	fprintf(fd, "%s;", scope->end_label);
+      }
+      scope = scope->parent;
     }
   }
 }

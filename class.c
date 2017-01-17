@@ -647,7 +647,7 @@ struct class_group *class_parse(struct lib_entry *entry){
       class_def->pub.scripts[cls_header->script_count]=NULL;
 
       for (k=0;k<cls_header->script_count;k++){
-	DEBUGF(PARSE, "XXX Script[%u] %u, %u, %04x, %04x, %04x, %04x, %04x, %04x, %s %s %s %s %s %s, %s", k,
+	DEBUGF(PARSE, "Script[%u] %u, %u, %04x, %04x, %04x, %04x, %04x, %04x, %s %s %s %s %s %s, %s", k,
 	  script_definitions[k].short_header->method_id,
 	  script_definitions[k].short_header->method_number,
 	  script_definitions[k].header->unnamed1,
