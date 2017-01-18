@@ -16,9 +16,28 @@ static void write_variable(FILE *fd, struct variable_definition *variable){
   }
   if (variable->constant)
     fprintf(fd, "constant ");
+  if (variable->indirect)
+    fprintf(fd, "indirect ");
   fprintf(fd, "%s %s", variable->type, variable->name);
   if (variable->dimensions)
     fprintf(fd, "%s", variable->dimensions);
+
+  if (variable->value_count && variable->initial_values){
+    fputs(" = ", fd);
+    if (variable->indirect || variable->dimensions || variable->value_count>1)
+      fputs("{", fd);
+
+    unsigned i;
+    for(i=0;i<variable->value_count;i++){
+      if (i>0)
+	fputs(", ", fd);
+      if (variable->initial_values[i])
+	fputs(variable->initial_values[i], fd);
+    }
+
+    if (variable->indirect || variable->dimensions || variable->value_count>1)
+      fputs("}", fd);
+  }
   fprintf(fd, "\n");
 }
 

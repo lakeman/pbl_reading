@@ -106,6 +106,47 @@ struct pbext_reference{
   uint16_t unnamed2;
 };
 
+struct pbarray_dimension{
+  int32_t lower;
+  int32_t upper;
+};
+
+struct pbarray_values{
+  uint16_t unnamed1;
+  uint16_t type;
+  uint32_t unnamed2;
+  uint32_t unnamed3;
+  uint16_t unnamed4;
+  uint16_t dimensions;
+  uint32_t unnamed5;
+  uint32_t unnamed6;
+  uint32_t unnamed7;
+  uint32_t unnamed8;
+};
+
+enum indirect_type{
+  indirect_name=1,
+  indirect_args,
+  indirect_nargs,
+  indirect_value,
+  indirect_eoseq,
+  indirect_dims
+};
+
+struct pbindirect_arg{
+  uint32_t expression_offset;
+  uint16_t indirect_type;
+  uint16_t unnamed2;
+};
+
+struct pbindirect_func{
+  uint32_t name_offset;
+  uint32_t args_offset;
+  uint16_t arg_count;
+  uint16_t unnamed1;
+  uint32_t unnamed2;
+};
+
 struct pbvalue{
   uint32_t value;
   uint16_t flags;

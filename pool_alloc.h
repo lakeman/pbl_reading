@@ -17,6 +17,8 @@ const char *pool_dup_u(struct pool *pool, const UChar *str);
 
 const char *pool_dupn(struct pool *pool, const char *str, size_t len);
 const char *pool_dupn_u(struct pool *pool, const UChar *str, size_t len);
+const char *pool_sprintf(struct pool *pool, const char *fmt, ...)
+   __attribute__ ((__format__(printf,2,3)));;
 
 #define alignment_of(T) offsetof( struct { char x; T dummy; }, dummy)
 

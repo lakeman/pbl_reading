@@ -793,106 +793,6 @@ static void dump_instruction(FILE *fd, struct instruction *inst){
 }
 */
 
-static void printf_res(FILE *fd, struct class_group_private *group, struct data_table *table, uint32_t offset){
-  const void *ptr = get_table_ptr(group, table, offset);
-  if (!ptr){
-    fprintf(fd, "**NULL**");
-    return;
-  }
-
-  const struct pbtable_info *info = get_table_info(group, table, offset);
-  if (!info){
-    fprintf(fd, "**INFO=NULL**");
-    return;
-  }
-
-  switch(info->structure_type){
-    case 1:{
-      fprintf(fd, "%d", *(const int*)ptr);
-      return;
-    }
-    case 4:{
-      fprintf(fd, "%f", *(const double*)ptr);
-      return;
-    }
-    case 5:{
-      // decimal
-      intmax_t magnitude=0; // probably not big enough, but should work for smaller constants.
-      uint8_t sign;
-      uint8_t exponent;
-      if (group->header.compiler_version <= PB10){
-	struct pb_old_decimal *dec = (struct pb_old_decimal *)ptr;
-	sign = dec->sign;
-	exponent = dec->exponent;
-	memcpy(&magnitude, dec->magnitude, sizeof magnitude > sizeof dec->magnitude ? sizeof dec->magnitude : sizeof magnitude);
-      }else{
-	struct pb_decimal *dec = (struct pb_decimal *)ptr;
-	sign = dec->sign;
-	exponent = dec->exponent;
-	memcpy(&magnitude, dec->magnitude, sizeof magnitude > sizeof dec->magnitude ? sizeof dec->magnitude : sizeof magnitude);
-      }
-      if (sign)
-	magnitude = -magnitude;
-      char buff[32];
-      int chars = snprintf(buff, sizeof buff, "%"PRIdMAX, magnitude);
-      if (exponent){
-	unsigned i;
-	for(i=0;i<exponent;i++)
-	  buff[chars -i] = buff[chars -i -1];
-	buff[chars - exponent]='.';
-	buff[chars+1]=0;
-      }
-      fputs(buff, fd);
-      return;
-    }
-    case 6: {
-      const struct pb_datetime *datetime = ptr;
-      // probably enough to distinguish dates and times...
-      if (datetime->year == 63636 && datetime->month == 255){
-	fprintf(fd, "%02d:%02d:%02d.%06d",
-	  datetime->hour,
-	  datetime->minute,
-	  datetime->second,
-	  datetime->millisecond);
-      }else{
-	fprintf(fd, "%04d-%02d-%02d",
-	  datetime->year + 1900,
-	  datetime->month + 1,
-	  datetime->day);
-      }
-      return ;
-    }
-    case 12:{ // property reference
-      const struct pbprop_ref *ref = (struct pbprop_ref *)ptr;
-      const char *name = get_table_string(group, table, ref->name_offset);
-      if (name)
-	fprintf(fd, "%s", name);
-      else
-	fprintf(fd, "prop_%u", ref->prop_number);
-      return;
-    }
-    case 13:{ // method reference
-      const struct pbmethod_ref *ref = (struct pbmethod_ref *)ptr;
-      const char *name = get_table_string(group, table, ref->name_offset);
-      if (name)
-	fprintf(fd, "%s", name);
-      else
-	fprintf(fd, "method_%u", ref->method_number);
-      return;
-    }
-    case 18:{
-      const struct pbcreate_ref *ref = (struct pbcreate_ref *)ptr;
-      const char *name = get_table_string(group, table, ref->name_offset);
-      if (name)
-	fprintf(fd, "%s", name);
-      else
-	fprintf(fd, "%s", get_type_name(group, ref->type));
-      return;
-    }
-  }
-  fprintf(fd, "%02x_%04x", info->structure_type, offset);
-}
-
 static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct instruction *inst, uint8_t precedence){
   if (!inst){
     fprintf(fd, "***NULL***");
@@ -1028,7 +928,11 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
       case RES:{
 	i=(int)(*(++tokens));
 	assert(i+1 < inst->definition->args);
-	printf_res(fd, group, &script->body->resources, *(const uint32_t*)&inst->args[i]);
+	const char *value = get_table_resource(group, &script->body->resources, *(const uint32_t*)&inst->args[i]);
+	if (value)
+	  fputs(value, fd);
+	else
+	  fputs("**NULL**", fd);
       }break;
 
       case RES_STRING_CONST:{
@@ -1036,19 +940,10 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	assert(i+1 < inst->definition->args);
 	uint32_t offset = *(const uint32_t*)&inst->args[i];
 	const char *str = get_table_string(group, &script->body->resources, offset);
-	fputc('\"', fd);
-	while(*str){
-	  switch(*str){
-	    case '\"': fputs("~\"", fd); break;
-	    case '\'': fputs("~\'", fd); break;
-	    case '\r': fputs("~r", fd); break;
-	    case '\n': fputs("~n", fd); break;
-	    case '~': fputs("~~", fd); break;
-	    default: fputc(*str, fd); break;
-	  }
-	  str++;
-	}
-	fputc('\"', fd);
+	assert(str);
+	const char *quoted = quote_escape_string(group, str);
+	assert(quoted);
+	fputs(quoted, fd);
       }break;
       case RES_STRING:{
 	i=(int)(*(++tokens));

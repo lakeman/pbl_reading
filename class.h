@@ -21,9 +21,10 @@ struct variable_definition{
   const char *type;
   const char *name;
   const char *dimensions;
-  // TODO indirect variables
-  // initial values
+  unsigned value_count;
+  const char **initial_values;
   // descriptors
+  uint8_t indirect:1;
   uint8_t constant:1;
   uint8_t user_defined:1;
 };

@@ -21,12 +21,15 @@ struct type_defs{
 
 struct variable_def_private{
   struct variable_definition pub;
-  const int32_t *dimensions;
+  const struct pbtype_def *type;
+  unsigned dimension_count;
+  const struct pbarray_dimension *dimensions;
 };
 
 struct arg_def_private{
   struct argument_definition pub;
-  const int32_t *dimensions;
+  unsigned dimension_count;
+  const struct pbarray_dimension *dimensions;
 };
 
 struct script_implementation{
@@ -81,5 +84,8 @@ const struct pbtable_info *get_table_info(struct class_group_private *class_grou
 const char *get_table_string(struct class_group_private *class_group, struct data_table *table, uint32_t offset);
 struct class_def_private *get_class_by_type(struct class_group_private *class_group, uint16_t type);
 const char *get_type_name(struct class_group_private *class_group, uint16_t type);
+const char *get_table_resource(struct class_group_private *class_group, struct data_table *table, uint32_t offset);
+const char *get_value(struct class_group_private *class_group, struct data_table *table, const struct pbvalue *value);
+const char *quote_escape_string(struct class_group_private *class_group, const char *str);
 
 #endif

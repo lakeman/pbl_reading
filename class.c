@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <string.h>
+#include <inttypes.h>
 #include "pool_alloc.h"
 #include "lib.h"
 #include "pb_class_types.h"
@@ -73,6 +74,230 @@ const char *get_table_string(struct class_group_private *class_group, struct dat
   return pool_dup_u(class_group->pool, (const UChar *)get_table_ptr(class_group, table, offset));
 }
 
+const char *quote_escape_string(struct class_group_private *class_group, const char *str){
+  if (!str)
+    return NULL;
+  unsigned single_escape_count=0;
+  unsigned double_escape_count=0;
+  unsigned len=0;
+  const char *s = str;
+  while(*s){
+    len++;
+    switch(*s++){
+      case '\"':
+	double_escape_count++;
+	break;
+      case '\'':
+	single_escape_count++;
+	break;
+      case '\t':
+      case '\r':
+      case '\n':
+      case '~':
+	single_escape_count++;
+	double_escape_count++;
+	break;
+    }
+  }
+
+  char *ret = pool_alloc(class_group->pool, len+double_escape_count+2+1, 1);
+  s = str;
+  char *d = ret;
+  *d++='"';
+  while(*s){
+    switch(*s){
+      case '\r': *d++='~'; *d++='r'; s++; break;
+      case '\n': *d++='~'; *d++='n'; s++; break;
+      case '\t': *d++='~'; *d++='t'; s++; break;
+      case '\"':
+      case '~':
+	*d++='~';
+      default:
+	*d++=*s++;
+    }
+  }
+  *d++='"';
+  *d++=0;
+  return ret;
+}
+
+static const char *get_indirect_arg_name(struct class_group_private *class_group, struct data_table *table, const struct pbindirect_arg *arg){
+  switch(arg->indirect_type){
+    case indirect_name:
+      return "*name";
+    case indirect_args:
+      return "*args";
+    case indirect_nargs:
+      return "*nargs";
+    case indirect_value:
+      return "*value";
+    case indirect_eoseq:
+      return "*eoseq";
+    case indirect_dims:
+      return "*dims";
+  }
+  return get_table_string(class_group, table, arg->expression_offset);
+}
+
+static const char *get_indirect_func(struct class_group_private *class_group, struct data_table *table, const struct pbindirect_func *func){
+  if (!func)
+    return NULL;
+  const char *name = get_table_string(class_group, table, func->name_offset);
+  if (!name)
+    return NULL;
+  const char *args[func->arg_count];
+  const struct pbindirect_arg *args_ptr = func->arg_count ? get_table_ptr(class_group, table, func->args_offset) : NULL;
+  unsigned i;
+  size_t len=strlen(name)+2;
+  for (i=0;i<func->arg_count;i++){
+    args[i] = get_indirect_arg_name(class_group, table, &args_ptr[i]);
+    len += args[i] ? strlen(args[i]) : 0;
+    if (i>0)
+      len+=2;
+  }
+  char buff[len+1], *p=buff;
+  p=strcat(p, name);
+  *p++='(';
+  for (i=0;i<func->arg_count;i++){
+    if (i>0){
+      *p++=',';
+      *p++=' ';
+    }
+    if (args[i])
+      p=strcat(p, args[i]);
+  }
+  *p++=')';
+  *p++=0;
+  return  pool_dupn(class_group->pool, buff, len);
+}
+
+const char *get_table_resource(struct class_group_private *class_group, struct data_table *table, uint32_t offset){
+  const void *ptr = get_table_ptr(class_group, table, offset);
+  if (!ptr)
+    return NULL;
+
+  const struct pbtable_info *info = get_table_info(class_group, table, offset);
+  if (!info)
+    return NULL;
+
+  switch(info->structure_type){
+    case 1:
+      return pool_sprintf(class_group->pool, "%d", *(const int*)ptr);
+    case 4:
+      return pool_sprintf(class_group->pool, "%f", *(const double*)ptr);
+    case 5:{
+      // decimal
+      intmax_t magnitude=0; // probably not big enough, but should work for smaller constants.
+      uint8_t sign;
+      uint8_t exponent;
+      if (class_group->header.compiler_version <= PB10){
+	struct pb_old_decimal *dec = (struct pb_old_decimal *)ptr;
+	sign = dec->sign;
+	exponent = dec->exponent;
+	memcpy(&magnitude, dec->magnitude, sizeof magnitude > sizeof dec->magnitude ? sizeof dec->magnitude : sizeof magnitude);
+      }else{
+	struct pb_decimal *dec = (struct pb_decimal *)ptr;
+	sign = dec->sign;
+	exponent = dec->exponent;
+	memcpy(&magnitude, dec->magnitude, sizeof magnitude > sizeof dec->magnitude ? sizeof dec->magnitude : sizeof magnitude);
+      }
+      if (sign)
+	magnitude = -magnitude;
+      char buff[32];
+      int chars = snprintf(buff, sizeof buff, "%"PRIdMAX, magnitude);
+      if (exponent){
+	unsigned i;
+	for(i=0;i<exponent;i++)
+	  buff[chars -i] = buff[chars -i -1];
+	buff[chars - exponent]='.';
+	buff[chars+1]=0;
+      }
+      return pool_dup(class_group->pool, buff);
+    }
+    case 6: {
+      const struct pb_datetime *datetime = ptr;
+      // probably enough to distinguish dates and times...
+      if (datetime->year == 63636 && datetime->month == 255){
+	return pool_sprintf(class_group->pool, "%02d:%02d:%02d.%06d",
+	  datetime->hour,
+	  datetime->minute,
+	  datetime->second,
+	  datetime->millisecond);
+      }else{
+	return pool_sprintf(class_group->pool, "%04d-%02d-%02d",
+	  datetime->year + 1900,
+	  datetime->month + 1,
+	  datetime->day);
+      }
+    }
+
+    // case 9: sql...
+
+    case 12:{ // property reference
+      const struct pbprop_ref *ref = (struct pbprop_ref *)ptr;
+      const char *name = get_table_string(class_group, table, ref->name_offset);
+      if (name)
+	return name;
+      else
+	return pool_sprintf(class_group->pool, "prop_%u", ref->prop_number);
+    }
+    case 13:{ // method reference
+      const struct pbmethod_ref *ref = (struct pbmethod_ref *)ptr;
+      const char *name = get_table_string(class_group, table, ref->name_offset);
+      if (name)
+	return name;
+      else
+	return pool_sprintf(class_group->pool, "method_%u", ref->method_number);
+    }
+    case 16:
+      return get_indirect_arg_name(class_group, table, ptr);
+    case 17:
+      return get_indirect_func(class_group, table, ptr);
+    case 18:{
+      const struct pbcreate_ref *ref = (struct pbcreate_ref *)ptr;
+      const char *name = get_table_string(class_group, table, ref->name_offset);
+      if (name)
+	return name;
+      else
+	return get_type_name(class_group, ref->type);
+    }
+    case 19:{
+      const struct pbarray_values *definition = ptr;
+      const struct pbarray_dimension *dimensions = ptr+sizeof(*definition);
+      const struct pbvalue *values = ptr+sizeof(*definition)+(sizeof(*dimensions) * definition->dimensions);
+      unsigned i;
+      unsigned count=1;
+      for (i=0;i<definition->dimensions;i++)
+	count*=dimensions[i].upper - dimensions[i].lower + 1;
+
+      const char *svalues[count];
+      size_t len=2;
+      for (i=0;i<count;i++){
+	svalues[i] = get_value(class_group, table, &values[i]);
+	len+=svalues[i] ? strlen(svalues[i]) : 0;
+	if (i>0)
+	  len+=2;
+      }
+      char buff[len+1], *p = buff;
+      *p++='{';
+      for (i=0;i<count;i++){
+	if (i>0){
+	  *p++=',';
+	  *p++=' ';
+	}
+	if (svalues[i])
+	  p = strcpy(p, svalues[i]);
+      }
+      *p++='}';
+      *p++=0;
+      return pool_dupn(class_group->pool, buff, len);
+    }
+    case 23:
+      return pool_sprintf(class_group->pool, "%"PRId64, *(uint64_t*)ptr);
+  }
+  return pool_sprintf(class_group->pool, "%02x_%04x", info->structure_type, offset);
+}
+
 static unsigned record_sizes[]={0,2,0,0,8,16,12,12,12,56,2,6,8,8,0,0,8,16,8,24,4,0,2,8};
 
 static void dump_table(FILE *fd, struct class_group_private *class_group, struct data_table *table){
@@ -90,7 +315,7 @@ static void dump_table(FILE *fd, struct class_group_private *class_group, struct
 	fprintf(fd, "   [%u]:",i);
 	for (j=0;j<record_size;j++)
 	  fprintf(fd, " %02x", table->data[offset++]);
-	fprintf(fd, "\n");
+	fprintf(fd, "    [%s]\n", get_table_resource(class_group, table, table->metadata[entry].offset));
       }
       entry++;
       continue;
@@ -236,12 +461,11 @@ static void debug_type_names(const char *heading, struct class_group_private *cl
 static const char *access_names[]={NULL,"private","protected","system"};
 
 // shift this?
-static const char *get_dimensions_str(struct class_group_private *class_group, const int32_t *dimensions){
+static const char *get_dimensions_str(struct class_group_private *class_group, unsigned count, const struct pbarray_dimension *dimensions){
   if (!dimensions)
     return NULL;
 
-  unsigned count = (unsigned)(*dimensions++ & 0x3FFF);
-  if (count==0 || (dimensions[0]==0 && dimensions[1]==0)){
+  if (count==0 || (dimensions[0].lower==0 && dimensions[0].upper==0)){
     // shortcut for auto-bound (likely to be common)
     return "[]";
   }
@@ -249,25 +473,140 @@ static const char *get_dimensions_str(struct class_group_private *class_group, c
   char buff[256], *dst = buff;
   *dst++='[';
   for (j=0;j<count;j++){
-    int32_t lower = *dimensions++;
-    int32_t upper = *dimensions++;
-    assert(lower<=upper);
+    assert(dimensions[j].lower<=dimensions[j].upper);
 
-    if (lower==0 && upper==0)
+    if (dimensions[j].lower==0 && dimensions[j].upper==0)
       break;
     if (j>0){
       *dst++=',';*dst++=' ';
     }
 
-    if (lower==1){
-      dst += sprintf(dst, "%d",upper);
+    if (dimensions[j].lower==1){
+      dst += sprintf(dst, "%d",dimensions[j].upper);
     }else{
-      dst += sprintf(dst, "%d to %d", lower, upper);
+      dst += sprintf(dst, "%d to %d", dimensions[j].lower, dimensions[j].upper);
     }
   }
   *dst++=']';
   *dst++=0;
   return pool_dup(class_group->pool, buff);
+}
+
+const char *get_value(struct class_group_private *class_group, struct data_table *table, const struct pbvalue *value){
+  uint32_t val = value->value;
+  if (value->flags & 0x2000)
+    // Array
+    return get_table_resource(class_group, table, val);
+
+  // 2 byte value
+  if ((value->flags & 0xC000) == 0x0400)
+    val = val & 0xFFFF;
+
+  if (val==0)
+    return NULL;
+
+  switch(value->type){
+    case pbvalue_int:
+      return pool_sprintf(class_group->pool, "%d", (int16_t)val);
+    case pbvalue_long:
+      return pool_sprintf(class_group->pool, "%d", (int32_t)val);
+    case pbvalue_real:
+      return pool_sprintf(class_group->pool, "%f", *(float*)&val);
+    case pbvalue_string:{
+      const char *raw = get_table_string(class_group, table, val);
+      const char *quoted = quote_escape_string(class_group, raw);
+      return quoted;
+    }
+    case pbvalue_double:
+    case pbvalue_dec:
+    case pbvalue_date:
+    case pbvalue_time:
+    case pbvalue_longlong:
+      return get_table_resource(class_group, table, val);
+    case pbvalue_datetime:{
+      const struct pb_datetime *datetime = get_table_ptr(class_group, table, val);
+      return pool_sprintf(class_group->pool, "datetime(%04d-%02d-%02d, %02d:%02d:%02d.%06d)",
+	datetime->year + 1900,
+	datetime->month + 1,
+	datetime->day,
+	datetime->hour,
+	datetime->minute,
+	datetime->second,
+	datetime->millisecond);
+    }
+    case pbvalue_boolean:
+      return val ? "true" : "false";
+    case pbvalue_any:
+    case pbvalue_blob:
+    case pbvalue_objhandle:
+    case pbvalue_placeholder:
+      return NULL;
+    case pbvalue_cursor:
+    case pbvalue_procedure:
+      return NULL; // TODO
+    case pbvalue_char:
+      // TODO
+    case pbvalue_byte:
+    case pbvalue_uint:
+      return pool_sprintf(class_group->pool, "%u", (uint16_t)val);
+    case pbvalue_ulong:
+      return pool_sprintf(class_group->pool, "%u", (uint32_t)val);
+  }
+  return NULL;
+}
+
+static void init_values(struct class_group_private *class_group, struct data_table *table, struct variable_def_private *variable){
+  variable->pub.initial_values = NULL;
+  variable->pub.value_count = 0;
+
+  if (variable->pub.indirect){
+    const struct pbindirect_func *funcs = get_table_ptr(class_group, table, variable->type->value.value);
+    if (!funcs)
+      return;
+    const struct pbtable_info *info = get_table_info(class_group, table, variable->type->value.value);
+    if (!info)
+      return;
+
+    variable->pub.value_count = info->count;
+    variable->pub.initial_values = pool_alloc_array(class_group->pool, const char *, info->count+1);
+    unsigned i;
+    for (i=0;i<info->count;i++)
+      variable->pub.initial_values[i] = get_indirect_func(class_group, table, &funcs[i]);
+    variable->pub.initial_values[info->count] = NULL;
+    return;
+  }
+
+  if (variable->type->value.flags & 0x2000){
+    const void *ptr = get_table_ptr(class_group, table, variable->type->value.value);
+    if (!ptr)
+      return;
+    const struct pbarray_values *definition = ptr;
+    if (definition->dimensions==0)
+      return;
+    const struct pbarray_dimension *dimensions = ptr+sizeof(*definition);
+    const struct pbvalue *values = ptr+sizeof(*definition)+(sizeof(*dimensions) * definition->dimensions);
+    unsigned i;
+    unsigned count=1;
+    for (i=0;i<definition->dimensions;i++)
+      count*=dimensions[i].upper - dimensions[i].lower + 1;
+    if (count==0)
+      return;
+    variable->pub.value_count = count;
+    variable->pub.initial_values = pool_alloc_array(class_group->pool, const char *, count+1);
+    for (i=0;i<count;i++)
+      variable->pub.initial_values[i] = get_value(class_group, table, &values[i]);
+    variable->pub.initial_values[count] = NULL;
+    return;
+  }
+
+  const char *value = get_value(class_group, table, &variable->type->value);
+  if (!value)
+    return;
+
+  variable->pub.value_count = 1;
+  variable->pub.initial_values = pool_alloc_array(class_group->pool, const char *, 2);
+  variable->pub.initial_values[0] = value;
+  variable->pub.initial_values[1] = NULL;
 }
 
 // not all type lists are variables
@@ -280,17 +619,27 @@ static struct variable_definition** type_defs_to_variables(struct class_group_pr
   unsigned i;
   for (i=0;i<type_defs->count;i++){
     pointers[i] = &variables[i].pub;
+    const struct pbtype_def *type = variables[i].type = &type_defs->types[i];
     variables[i].pub.name = type_defs->names[i];
-    variables[i].pub.type = get_type_name(class_group, type_defs->types[i].value.type);
-    variables[i].pub.read_access = access_names[(type_defs->types[i].flags >> 4)&3];
-    variables[i].pub.write_access = access_names[(type_defs->types[i].flags >> 6)&3];
+    variables[i].pub.type = get_type_name(class_group, type->value.type);
+    variables[i].pub.read_access = access_names[(type->flags >> 4)&3];
+    variables[i].pub.write_access = access_names[(type->flags >> 6)&3];
+    variables[i].pub.user_defined = (type->value.flags & 0x200)?1:0;
+    variables[i].pub.constant = (type->flags & 0x04)?1:0;
+    variables[i].pub.indirect = (type->flags & 0x02)?1:0;
 
-    variables[i].pub.user_defined = (type_defs->types[i].value.flags & 0x200)?1:0;
-    variables[i].pub.constant = (type_defs->types[i].flags & 0x04)?1:0;
-    // 0x0004 autoinstantiate?
-    // 0x1000 long?
-    variables[i].dimensions = get_table_ptr(class_group, &type_defs->table, type_defs->types[i].array_dimensions);
-    variables[i].pub.dimensions = get_dimensions_str(class_group, variables[i].dimensions);
+    const int32_t *ptr = get_table_ptr(class_group, &type_defs->table, type->array_dimensions);
+    if (ptr){
+      variables[i].dimension_count = (unsigned)(ptr[0] & 0x3FFF);
+      variables[i].dimensions = (const struct pbarray_dimension *)&ptr[1];
+      variables[i].pub.dimensions = get_dimensions_str(class_group, variables[i].dimension_count, variables[i].dimensions);
+    }else{
+      variables[i].dimension_count = 0;
+      variables[i].dimensions = NULL;
+      variables[i].pub.dimensions = NULL;
+    }
+
+    init_values(class_group, &type_defs->table, &variables[i]);
   }
   pointers[type_defs->count] = NULL;
   return pointers;
@@ -333,8 +682,16 @@ static void build_arg_list(struct class_group_private *class_group, struct scrip
     args[i].pub.name = get_table_string(class_group, &class_group->function_name_table, script_def->arguments[i].name_offset);
     args[i].pub.type = get_type_name(class_group, script_def->arguments[i].type);
 
-    args[i].dimensions = get_table_ptr(class_group, &class_group->function_name_table, script_def->arguments[i].array_dimensions);
-    args[i].pub.dimensions = get_dimensions_str(class_group, args[i].dimensions);
+    const int32_t *ptr = get_table_ptr(class_group, &class_group->function_name_table, script_def->arguments[i].array_dimensions);
+    if (ptr){
+      args[i].dimension_count = (unsigned)(ptr[0] & 0x3FFF);
+      args[i].dimensions = (const struct pbarray_dimension *)&ptr[1];
+      args[i].pub.dimensions = get_dimensions_str(class_group, args[i].dimension_count, args[i].dimensions);
+    }else{
+      args[i].dimension_count = 0;
+      args[i].dimensions = NULL;
+      args[i].pub.dimensions = NULL;
+    }
   }
   pointers[count] = NULL;
 }

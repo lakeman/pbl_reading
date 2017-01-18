@@ -2,6 +2,8 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <execinfo.h>
+#include <signal.h>
 #include "lib.h"
 #include "debug.h"
 #include "class.h"
@@ -17,7 +19,24 @@ static void callback(struct lib_entry *entry, void *UNUSED(context)){
   printf("Entry %s\n", entry->name);
 }
 
+static void handler(int sig) {
+  fflush(stdout);
+
+  void *array[64];
+  size_t size;
+
+  // get void*'s for all entries on the stack
+  size = backtrace(array, 64);
+
+  // print out all the frames to stderr
+  fprintf(stderr, "Error: signal %d:\n", sig);
+  backtrace_symbols_fd(array, size, STDERR_FILENO);
+  exit(-1);
+}
+
 int main(int argc, const char **argv){
+  signal(SIGSEGV, handler);
+
   if (argc<2){
     fprintf(stderr, "Usage %s \"filename\" [\"Object name\"]\n", argv[0]);
     return 0;

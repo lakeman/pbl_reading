@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <assert.h>
 #include <string.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include "pool_alloc.h"
 #include "debug.h"
 
@@ -133,5 +135,23 @@ const char *pool_dup_u(struct pool *pool, const UChar *str){
   u_strToUTF8(ret, len, NULL, str, -1, &status);
   ret[len]=0;
   assert(!U_FAILURE(status));
+  return ret;
+}
+
+const char *pool_sprintf(struct pool *pool, const char *fmt, ...)
+{
+  va_list ap;
+  va_list ap1;
+
+  va_start(ap, fmt);
+
+  va_copy(ap1, ap);
+  int len = vsnprintf(NULL, 0, fmt, ap1);
+  va_end(ap1);
+
+  char *ret = pool_alloc(pool, len+1, 1);
+  vsnprintf(ret, len+1, fmt, ap);
+
+  va_end(ap);
   return ret;
 }
