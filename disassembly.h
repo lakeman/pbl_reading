@@ -39,8 +39,11 @@ enum statement_type{
   expression = 0,
   generated,
   mem_append,
+  // unclassified branches
   jump_true,
   jump_false,
+  jump_goto,
+  // flow control that has been classified;
   if_then,
   do_while,
   do_until,
@@ -52,14 +55,15 @@ enum statement_type{
   jump_continue,
   jump_else,
   jump_elseif,
+  // for loops must have the following 4 statements on a single line;
   for_init,
   for_jump,
   for_step,
   for_test,
-  jump_goto,
   exception_try,
   exception_catch,
-  exception_end_try
+  exception_end_try,
+  exception_gosub
 };
 
 struct statement{

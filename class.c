@@ -79,17 +79,21 @@ const char *quote_escape_string(struct class_group_private *class_group, const c
     return NULL;
   unsigned single_escape_count=0;
   unsigned double_escape_count=0;
+  unsigned ascii_non_print=0;
   unsigned len=0;
   const char *s = str;
   while(*s){
     len++;
-    switch(*s++){
+    switch(*s){
       case '\"':
 	double_escape_count++;
 	break;
       case '\'':
 	single_escape_count++;
 	break;
+      case '\b':
+      case '\v':
+      case '\f':
       case '\t':
       case '\r':
       case '\n':
@@ -97,15 +101,22 @@ const char *quote_escape_string(struct class_group_private *class_group, const c
 	single_escape_count++;
 	double_escape_count++;
 	break;
+      default:
+	if (*s < 0x1f || *s == 0x7f)
+	  ascii_non_print++;
     }
+    s++;
   }
 
-  char *ret = pool_alloc(class_group->pool, len+double_escape_count+2+1, 1);
+  char *ret = pool_alloc(class_group->pool, len+double_escape_count+(ascii_non_print*3)+2+1, 1);
   s = str;
   char *d = ret;
   *d++='"';
   while(*s){
     switch(*s){
+      case '\b': *d++='~'; *d++='b'; s++; break;
+      case '\f': *d++='~'; *d++='f'; s++; break;
+      case '\v': *d++='~'; *d++='v'; s++; break;
       case '\r': *d++='~'; *d++='r'; s++; break;
       case '\n': *d++='~'; *d++='n'; s++; break;
       case '\t': *d++='~'; *d++='t'; s++; break;
@@ -113,7 +124,10 @@ const char *quote_escape_string(struct class_group_private *class_group, const c
       case '~':
 	*d++='~';
       default:
-	*d++=*s++;
+	if (*s < 0x1f || *s == 0x7f)
+	  d+=sprintf(d, "h%02x", *s++);
+	else
+	  *d++=*s++;
     }
   }
   *d++='"';

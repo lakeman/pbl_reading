@@ -364,14 +364,26 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
     return;
   }
 
-  // plain if test
+  // plain if test?
   if (if_test->type == jump_false
     && if_test->branch->start_offset > if_test->start_offset){
-    struct scope *scope = insert_scope(disassembly, if_test, if_test->next, prior, prior);
-    assert(scope);
+
+    struct statement *indent_end = prior;
+    const char *end_label = endif_label;
     if_test->type = if_then;
+
+    if (if_test->end->stack[0]->definition->id == SM_CATCH_EXCEPTION_0){
+      if_test->type = exception_catch;
+      end_label = NULL;
+      if (if_test->branch->end->definition->id == SM_GOSUB_1)
+	indent_end = if_test->branch->branch->prev;
+    }
+
+    struct scope *scope = insert_scope(disassembly, if_test, if_test->next, indent_end, indent_end);
+    assert(scope);
     if_test->branch->classified_count++;
-    scope->end_label = endif_label;
+    scope->end_label = end_label;
+    return;
   }
 }
 
@@ -418,9 +430,10 @@ static void link_destinations(struct disassembly *disassembly){
 	      break;
 	    }
 	  }
-	  end->type = generated;
+	  end->type = exception_gosub;
 	  end = end->next;
 	}
+
 	assert(end->end->definition->id == SM_POP_TRY_0);
 	end->type = exception_end_try;
 
@@ -438,7 +451,7 @@ static void link_destinations(struct disassembly *disassembly){
 	  assert(scope);
 	  scope->begin_label = finally_label;
 	}
-	// the catch block should look like a standard if then elseif... so we don't need a special case here
+
 	continue;
       }
       case exception_catch:
@@ -451,6 +464,7 @@ static void link_destinations(struct disassembly *disassembly){
       case loop_while:
       case loop_until:
       case do_until:
+      case exception_gosub:
 find_dest:
       {
 	unsigned dest_offset = ptr->end->args[0];
@@ -478,9 +492,16 @@ find_dest:
       ptr->type = generated;
       ptr->branch->classified_count++;
     }
+  }
 
-    if (ptr->type == jump_true || ptr->type == jump_false)
+  for (i=0; i<disassembly->statement_count; i++){
+    struct statement *jmp = disassembly->statements[i];
+    if (jmp->type == jump_true || jmp->type == jump_false)
       classify_if_then(disassembly, i);
+    if (jmp->type == exception_gosub){
+      jmp->type = generated;
+      jmp->branch->classified_count++;
+    }
   }
 
   // work backwards to simplify merging elseif's as we go.
@@ -1006,7 +1027,7 @@ static void fputeol(FILE *fd, struct print_state *state){
   //assert(state->indent>=0);
   int i = state->indent;
   while(i-->0)
-    fputs("    ", fd);
+    fputs("\t", fd);
 }
 
 // recursive, so we can process the top parent scope first
@@ -1061,7 +1082,7 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
 	case jump_exit:		fputs("exit;", fd); break;
 	case jump_continue:	fputs("continue;", fd); break;
 	case jump_else:		fputs("else;", fd); break;
-	case jump_elseif:		fputs("else", fd); break;
+	case jump_elseif:	fputs("else", fd); break;
 	case if_then:
 	  fputs("if ", fd);
 	  printf_instruction(fd, disassembly, statement->end->stack[0], 0);
@@ -1087,6 +1108,12 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
 	  printf_instruction(fd, disassembly, statement->end->stack[0], 0);
 	  fputs(";", fd);
 	  break;
+	case exception_catch:{
+	  struct instruction *inst = statement->end->stack[0]->stack[0];
+	  unsigned var = inst->args[0];
+	  struct variable_definition *variable = disassembly->script->local_variables[var];
+	  fprintf(fd, "catch (%s %s);", variable->type, variable->name);
+	}break;
 	case for_init:
 	  // TODO for [var] = [init] to [end] [step [N]]
 	  // for now, C style;
