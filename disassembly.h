@@ -55,6 +55,9 @@ enum statement_type{
   jump_continue,
   jump_else,
   jump_elseif,
+  choose_case,
+  case_if,
+  case_else,
   // for loops must have the following 4 statements on a single line;
   for_init,
   for_jump,
@@ -92,6 +95,8 @@ enum token_types{
   ARG_CSV,
   ARG_LONG,
   ARG_LONG_HEX,
+  ARG_ENUM,
+  OPERATOR,
   METHOD_FLAGS,
   RES,
   RES_STRING,
@@ -105,23 +110,33 @@ enum token_types{
   MAX_TOKEN
 };
 
-#define OPERATOR_EQ " = "
-#define OPERATOR_NE " <> "
-#define OPERATOR_GT " > "
-#define OPERATOR_LT " < "
-#define OPERATOR_GE " >= "
-#define OPERATOR_LE " <= "
-
-#define OPERATOR_CAT " + "
-#define OPERATOR_ADD " + "
-#define OPERATOR_SUB " - "
-#define OPERATOR_MULT " * "
-#define OPERATOR_DIV " / "
-#define OPERATOR_POWER " ^ "
-#define OPERATOR_NEGATE "-"
-#define OPERATOR_AND " and "
-#define OPERATOR_OR " or "
-#define OPERATOR_NOT "not "
+enum operation{
+  OP_OTHER,
+  OP_EQ,
+  OP_NE,
+  OP_GT,
+  OP_LT,
+  OP_GE,
+  OP_LE,
+  OP_CAT,
+  OP_ADD,
+  OP_SUB,
+  OP_MULT,
+  OP_DIV,
+  OP_POWER,
+  OP_NEGATE,
+  OP_AND,
+  OP_OR,
+  OP_NOT,
+  OP_ASSIGN,
+  OP_ASSIGNINCR,
+  OP_ASSIGNDECR,
+  OP_ASSIGNADD,
+  OP_ASSIGNSUB,
+  OP_ASSIGNMULT,
+  OP_CONST,
+  OP_CONVERT,
+};
 
 // note the gaps, as precedence is decremented when testing RHS of a binary operation
 // to detect when left to right rule has been violated. eg a - (b + c)
@@ -137,31 +152,31 @@ enum token_types{
 #define PRECEDENCE_AND 14
 #define PRECEDENCE_OR 16
 
-#define OPERATOR_ASSIGNINCR "++"
-#define OPERATOR_ASSIGNDECR "--"
-#define OPERATOR_ASSIGNADD " += "
-#define OPERATOR_ASSIGNSUB " -= "
-#define OPERATOR_ASSIGNMULT " *= "
+#define BIN_OP(NAME,TYPE) __DEFINE(SM_##NAME##_##TYPE, 0, stack_result, 2, PRECEDENCE_##NAME, OP_##NAME, STACK, 1, OPERATOR, STACK, 0)
+#define BIN_OP_ASSIGN(NAME,TYPE) __DEFINE(SM_##NAME##ASSIGN_##TYPE, 2, stack_action, 2, 0, OP_ASSIGN##NAME, STACK, 1, OPERATOR, STACK, 0, END)
+#define UN_OP(NAME,TYPE) __DEFINE(SM_##NAME##_##TYPE, 0, stack_result, 1, PRECEDENCE_##NAME, OP_##NAME, OPERATOR, STACK, 0)
+#define UN_OP_ASSIGN(NAME,TYPE) __DEFINE(SM_##NAME##_##TYPE, 2, stack_action, 1, 0, OP_ASSIGN##NAME, STACK, 0, OPERATOR, END)
+#define CONVERT(FROM,TO) __DEFINE(SM_CNV_##FROM##_TO_##TO, 1, stack_tweak_indirect, 0, 0, OP_CONVERT, STACK, 0)
+#define CONVERT2(FROM,TO) __DEFINE(SM_CNV_##FROM##_TO_##TO, 2, stack_tweak_indirect, 0, 0, OP_CONVERT, STACK, 0)
+#define ASSIGN(TYPE) __DEFINE(SM_ASSIGN_##TYPE, 1, stack_action, 2, 0, OP_ASSIGN, STACK, 1, OPERATOR, STACK, 0, END)
+#define ASSIGN2(TYPE) __DEFINE(SM_ASSIGN_##TYPE, 2, stack_action, 2, 0, OP_ASSIGN, STACK, 1, OPERATOR, STACK, 0, END)
+#define CMP(NAME,TYPE) __DEFINE(SM_##NAME##_##TYPE, 0, stack_result, 2, PRECEDENCE_COMPARE, OP_##NAME, STACK, 1, OPERATOR, STACK, 0)
+#define CMP2(NAME,TYPE) __DEFINE(SM_##NAME##_##TYPE, 2, stack_result, 2, PRECEDENCE_COMPARE, OP_##NAME, STACK, 1, OPERATOR, STACK, 0)
+#define CONST(TYPE, ARGTYPE) __DEFINE(SM_PUSH_CONST_##TYPE, 1, stack_result, 0, 0, OP_CONST, ARGTYPE, 0)
+#define CONST2(TYPE, ARGTYPE) __DEFINE(SM_PUSH_CONST_##TYPE, 2, stack_result, 0, 0, OP_CONST, ARGTYPE, 0)
+#define METHOD(NAME,FUNC,ARGS,STACK) __DEFINE(SM_##NAME, ARGS, stack_result, STACK, 0, OP_OTHER, "::" #FUNC "(", STACK_CSV, ")")
 
-#define BIN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, PRECEDENCE_##NAME, STACK, 1, OPERATOR_##NAME, STACK, 0)
-#define BIN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##ASSIGN_##TYPE, 2, stack_action, 2, 0, STACK, 1, OPERATOR_ASSIGN##NAME, STACK, 0, END)
-#define UN_OP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 1, PRECEDENCE_##NAME, OPERATOR_##NAME, STACK, 0)
-#define UN_OP_ASSIGN(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_action, 1, 0, STACK, 0, OPERATOR_ASSIGN##NAME, END)
-#define CONVERT(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 1, stack_tweak_indirect, 0, 0, STACK, 0)
-#define CONVERT2(FROM,TO) DEFINE_OP(SM_CNV_##FROM##_TO_##TO, 2, stack_tweak_indirect, 0, 0, STACK, 0)
-#define ASSIGN(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 1, stack_action, 2, 0, STACK, 1, " = ", STACK, 0, END)
-#define ASSIGN2(TYPE) DEFINE_OP(SM_ASSIGN_##TYPE, 2, stack_action, 2, 0, STACK, 1, " = ", STACK, 0, END)
-#define CMP(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 0, stack_result, 2, PRECEDENCE_COMPARE, STACK, 1, OPERATOR_##NAME, STACK, 0)
-#define CMP2(NAME,TYPE) DEFINE_OP(SM_##NAME##_##TYPE, 2, stack_result, 2, PRECEDENCE_COMPARE, STACK, 1, OPERATOR_##NAME, STACK, 0)
-#define METHOD(NAME,FUNC,ARGS,STACK) DEFINE_OP(SM_##NAME, ARGS, stack_result, STACK, 0, "::" #FUNC "(", STACK_CSV, ")")
+#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG,PRECEDENCE,...) __DEFINE(NAME,ARGS,STACK_KIND,STACK_ARG,PRECEDENCE,OP_OTHER,##__VA_ARGS__)
+
+
 
 // define an enum with unique instruction id's
-#define DEFINE_OP(NAME,ARGS, ...) NAME##_##ARGS,
+#define __DEFINE(NAME,ARGS, ...) NAME##_##ARGS,
 enum pcodeid{
 #include "opcodes.inc"
 MAX_ID
 };
-#undef DEFINE_OP
+#undef __DEFINE
 
 // ways that instructions interaction with the stack?
 enum stack_kind{
@@ -188,6 +203,7 @@ struct pcode_def{
   const char *description;
   unsigned args;
   unsigned precedence;
+  enum operation operation;
   enum stack_kind stack_kind;
   unsigned stack_arg;
   const char *tokens[];

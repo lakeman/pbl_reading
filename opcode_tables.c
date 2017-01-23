@@ -34,19 +34,20 @@
 // 1) define our own unique id for each instruction type (see disassembly.h)
 
 // 2) a global table with metadata for parsing instructions of that type
-#define DEFINE_OP(NAME,ARGS,STACK_KIND,STACK_ARG,PRECEDENCE,...) \
+#define __DEFINE(NAME,ARGS,STACK_KIND,STACK_ARG,PRECEDENCE,OPERATION,...) \
   struct pcode_def OP_##NAME##_##ARGS = {\
     .id=NAME##_##ARGS, \
     .name=#NAME, \
     .args=ARGS,\
     .precedence=PRECEDENCE,\
+    .operation=OPERATION,\
     .stack_kind=STACK_KIND,\
     .stack_arg=STACK_ARG,\
     .tokens={APPLY(TOKEN, ##__VA_ARGS__), NULL}};
 
 #include "opcodes.inc"
 
-#undef DEFINE_OP
+#undef __DEFINE
 
 
 // 3) declare which pcode instruction numbers relate to which operations for each version of PB

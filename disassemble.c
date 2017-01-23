@@ -28,6 +28,7 @@
  */
 
 static const char *endif_label = "end if";
+static const char *endchoose_label = "end choose";
 static const char *finally_label = "finally";
 static const char *do_label = "do";
 
@@ -169,15 +170,15 @@ static struct scope *insert_scope(struct disassembly *disassembly,
 
   assert(start->start_offset < end->end_offset);
   assert((indent_start ? 1 : 0) == (indent_end ? 1 : 0));
-  // Don't indent if the range is empty
+  // Nothing to indent if the range is empty
   if (indent_start && indent_start->start_offset > indent_end->end_offset)
     indent_start = indent_end = NULL;
 
   struct scope *parent_scope = start->scope;
-  DEBUGF(DISASSEMBLY, "Attempting to insert scope from %u to %u", start->start_offset, end->end_offset);
+  DEBUGF(DISASSEMBLY, "Attempting to insert scope from %02x to %02x", start->start_offset, end->end_offset);
 
   // if multiple scopes already begin or end here, pop scopes that have a smaller range
-  DEBUGF(DISASSEMBLY, "Current parent %p (%u %u)",
+  DEBUGF(DISASSEMBLY, "Current parent %p (%02x %02x)",
     parent_scope,
     parent_scope?parent_scope->start->start_offset:0,
     parent_scope?parent_scope->end->end_offset:0);
@@ -191,7 +192,7 @@ static struct scope *insert_scope(struct disassembly *disassembly,
       && parent_scope->start->start_offset > start->start_offset)
     )){
     parent_scope = parent_scope->parent;
-    DEBUGF(DISASSEMBLY, "Current parent %p (%u %u)",
+    DEBUGF(DISASSEMBLY, "Current parent %p (%02x %02x)",
       parent_scope,
       parent_scope?parent_scope->start->start_offset:0,
       parent_scope?parent_scope->end->end_offset:0);
@@ -199,7 +200,7 @@ static struct scope *insert_scope(struct disassembly *disassembly,
 
   // if the parent scope partially overlaps, we can't insert a new scope here
   if (parent_scope && parent_scope->end->end_offset < end->end_offset){
-    DEBUGF(DISASSEMBLY, "Ignoring new scope (%p %u %u)", parent_scope, parent_scope->end->end_offset, end->end_offset);
+    DEBUGF(DISASSEMBLY, "Ignoring new scope (%p %02x %02x)", parent_scope, parent_scope->end->end_offset, end->end_offset);
     return NULL;
   }
 
@@ -209,10 +210,14 @@ static struct scope *insert_scope(struct disassembly *disassembly,
     while(end_scope
       && end_scope != parent_scope
       && end_scope->end == end){
+      DEBUGF(DISASSEMBLY, "End scope %p has parent %p", end_scope, end_scope->parent);
       end_scope = end_scope->parent;
     }
     if (end_scope != parent_scope){
-      DEBUGF(DISASSEMBLY, "Ignoring new scope");
+      DEBUGF(DISASSEMBLY, "Ignoring new scope (%p vs %p %02x %02x)",
+	parent_scope, end_scope,
+	end_scope ? end_scope->start->start_offset : 0,
+	end_scope ? end_scope->end->end_offset : 0);
       return NULL;
     }
   }
@@ -251,6 +256,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
 
   // do ... loop (while|until), the conditional branch jumps back to the start
   if (if_test->branch->start_offset < if_test->start_offset){
+    DEBUGF(DISASSEMBLY, "Inserting scope for do ... loop (while|until)");
     struct scope *scope = insert_scope(disassembly, if_test->branch, if_test->branch, if_test->prev, if_test);
     if (scope){
       if (if_test->type == jump_false)
@@ -279,12 +285,14 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
 	if_test->type = do_until;
 
       // loop body
+      DEBUGF(DISASSEMBLY, "Inserting scope for do while|until) ... loop ");
       struct scope *scope = insert_scope(disassembly, if_test, if_test->next, prior->prev, prior);
       assert(scope);
       scope->break_dest = if_test->branch;
       scope->continue_dest = prior;
 
       prior->type = jump_loop;
+      prior->branch->classified_count++;
       if_test->branch->classified_count++;
       return;
     }
@@ -324,6 +332,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
       step->classified_count++;
 
       // loop body
+      DEBUGF(DISASSEMBLY, "Inserting scope for for next loop");
       struct scope *scope = insert_scope(disassembly, init, if_test->next, prior->prev, prior);
       assert(scope);
       scope->break_dest = if_test->branch;
@@ -343,6 +352,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
     while(i < disassembly->statement_count && disassembly->statements[i]->end_line_number == if_test->start_line_number)
       i++;
     if (i>statement_number+1 && if_test->branch == disassembly->statements[i]){
+      DEBUGF(DISASSEMBLY, "Inserting scope for inline if");
       struct scope *scope = insert_scope(disassembly, if_test, NULL, NULL, prior);
       assert(scope);
       if_test->type = if_then;
@@ -379,6 +389,7 @@ static void classify_if_then(struct disassembly *disassembly, unsigned statement
 	indent_end = if_test->branch->branch->prev;
     }
 
+    DEBUGF(DISASSEMBLY, "Inserting scope for plain if test");
     struct scope *scope = insert_scope(disassembly, if_test, if_test->next, indent_end, indent_end);
     assert(scope);
     if_test->branch->classified_count++;
@@ -442,11 +453,13 @@ static void link_destinations(struct disassembly *disassembly){
 	
 	// indent the guarded code (should be some??) with a scope that covers the entire try block
 	if (ptr != try_end){
+	  DEBUGF(DISASSEMBLY, "Inserting scope for try body");
 	  struct scope *scope = insert_scope(disassembly, ptr, ptr->next, try_end, end);
 	  assert(scope);
 	}
 	// scope for the finally block (if any)
 	if (finally){
+	  DEBUGF(DISASSEMBLY, "Inserting scope for finally");
 	  struct scope *scope = insert_scope(disassembly, finally, finally, end_finally, end_finally);
 	  assert(scope);
 	  scope->begin_label = finally_label;
@@ -498,7 +511,7 @@ find_dest:
     struct statement *jmp = disassembly->statements[i];
     if (jmp->type == jump_true || jmp->type == jump_false)
       classify_if_then(disassembly, i);
-    if (jmp->type == exception_gosub){
+    else if (jmp->type == exception_gosub){
       jmp->type = generated;
       jmp->branch->classified_count++;
     }
@@ -507,6 +520,56 @@ find_dest:
   // work backwards to simplify merging elseif's as we go.
   for (i=disassembly->statement_count;i>1;i--){
     struct statement *jmp = disassembly->statements[i - 1];
+
+    if (jmp->type == choose_case){
+      // find the end of the if then else chain
+      struct statement *start_indent = jmp->next;
+      struct statement *end_statement = start_indent;
+
+      assert(end_statement->type == if_then);
+      // follow the first else to the end label
+      end_statement = end_statement->branch;
+      if (end_statement->prev->type == jump_else || end_statement->prev->type == jump_elseif){
+	end_statement = end_statement->prev->branch;
+      }// else only a single case
+
+      // insert a new scope to add another layer of indent
+      DEBUGF(DISASSEMBLY, "Inserting scope for choose case");
+      struct scope *scope = insert_scope(disassembly, jmp, start_indent, end_statement->prev, end_statement->prev);
+      if(scope){
+	// now mark all the if tests and elseif's
+	struct statement *ptr = start_indent;
+	struct scope *endif_scope = ptr->scope;
+	ptr->type = case_if;
+	ptr=ptr->branch;
+	while(ptr
+	  && ptr->type == if_then
+	  && ptr->prev->type == jump_elseif
+	  && ptr->prev->branch == end_statement){
+	  endif_scope = ptr->scope;
+	  ptr->type = case_if;
+	  ptr->prev->type = generated;
+	  ptr = ptr->branch;
+	}
+
+	if (endif_scope->end_label == endif_label){
+	  // empty else, or no else at all
+	  endif_scope->end_label = NULL;
+	}else if (ptr->prev->type == jump_else
+	  && ptr->prev->scope->end_label == endif_label){
+	  ptr->prev->scope->end_label = NULL;
+	}
+
+	if (ptr->prev->type == jump_else){
+	  ptr->prev->type = case_else;
+	}
+
+	scope->end_label = endchoose_label;
+      }else{
+	// Huh?
+      }
+    }
+
     if (jmp->type == jump_goto && jmp->branch){
       // try to identify else's and elseif's...
       struct scope *if_scope = jmp->scope;
@@ -546,6 +609,7 @@ find_dest:
 	  }else{
 	    // else?
 	    // (the range doesn't include the else, or the insert would fail)
+	    DEBUGF(DISASSEMBLY, "Inserting scope for else block");
 	    struct scope *scope = insert_scope(disassembly, nxt, nxt, jmp->branch->prev, jmp->branch->prev);
 	    if (scope){
 	      scope->end_label = endif_label;
@@ -700,10 +764,14 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
 	  statement->type=exception_try;
 	  break;
 
-	//case SM_CATCH_EXCEPTION_0:
-	  // this will be followed by a jump_if, but we can easily classify it now.
-	  //statement->type=exception_catch;
-	  //break;
+	case SM_PUSH_LOCAL_VAR_LV_1:{
+	  unsigned var = inst->args[0];
+	  assert(var<disassembly->script->local_variable_count);
+	  // temporary case variables are named like "\x01case" LINE_NO
+	  if (*disassembly->script->local_variables[var]->name == 0x01)
+	    statement->type = choose_case;
+	  break;
+	}
 
 	case SM_ASSIGN_BLOB_1:
 	case SM_ASSIGN_STRING_1:{
@@ -936,6 +1004,43 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	fprintf(fd, "%d", inst->args[i]);
 	break;
 
+      case ARG_ENUM:
+	i = (int)(*(++tokens));
+	assert(i+1 < inst->definition->args);
+	fprintf(fd, "%04x_%d!", inst->args[i+1], inst->args[i]);
+	break;
+
+      case OPERATOR:{
+	const char *op=NULL;
+	switch(inst->definition->operation){
+	  case OP_EQ: op=" = "; break;
+	  case OP_NE: op=" <> "; break;
+	  case OP_GT: op=" > "; break;
+	  case OP_LT: op=" < "; break;
+	  case OP_GE: op=" >= "; break;
+	  case OP_LE: op=" <= "; break;
+	  case OP_CAT: op=" + "; break;
+	  case OP_ADD: op=" + "; break;
+	  case OP_SUB: op=" - "; break;
+	  case OP_MULT: op=" * "; break;
+	  case OP_DIV: op=" / "; break;
+	  case OP_POWER: op=" ^ "; break;
+	  case OP_NEGATE: op="-"; break;
+	  case OP_AND: op=" and "; break;
+	  case OP_OR: op=" or "; break;
+	  case OP_NOT: op="not "; break;
+	  case OP_ASSIGN: op=" = "; break;
+	  case OP_ASSIGNINCR: op="++"; break;
+	  case OP_ASSIGNDECR: op="--"; break;
+	  case OP_ASSIGNADD: op=" += "; break;
+	  case OP_ASSIGNSUB: op=" -= "; break;
+	  case OP_ASSIGNMULT: op=" *= "; break;
+	  default: break;
+	}
+	assert(op);
+	fputs(op, fd);
+      }break;
+
       case METHOD_FLAGS:{
 	i = (int)(*(++tokens));
 	assert(i < inst->definition->args);
@@ -1052,15 +1157,132 @@ static unsigned begin_scope(FILE *fd, struct print_state *state, struct scope *s
   return i;
 }
 
+void printf_case(FILE *fd, struct disassembly *disassembly, struct instruction *inst){
+  const char *op = NULL;
+  // TODO range?
+
+  switch(inst->definition->operation){
+    case OP_EQ:
+      printf_case(fd, disassembly, inst->stack[1]);
+      return;
+
+    // flip the operator then print the lhs
+    case OP_GT: op="is <= "; break;
+    case OP_LT: op="is >= "; break;
+    case OP_GE: op="is < "; break;
+    case OP_LE: op="is > "; break;
+
+    case OP_OR:
+      printf_case(fd, disassembly, inst->stack[1]);
+      fputs(", ", fd);
+      printf_case(fd, disassembly, inst->stack[0]);
+      return;
+
+    default:
+      break;
+  }
+
+  if (op){
+    fputs(op, fd);
+    printf_case(fd, disassembly, inst->stack[1]);
+    return;
+  }
+
+  // fall through...
+  printf_instruction(fd, disassembly, inst, 0);
+}
+
+static struct statement * printf_statement(FILE *fd, struct disassembly *disassembly, struct statement *statement){
+  // special cases;
+  switch(statement->type){
+    case exception_try:      fputs("try;", fd); break;
+    case exception_end_try:  fputs("end try;", fd); break;
+    case jump_loop:          fputs("loop;", fd); break;
+    case jump_next:          fputs("next;", fd); break;
+    case jump_exit:          fputs("exit;", fd); break;
+    case jump_continue:      fputs("continue;", fd); break;
+    case jump_else:          fputs("else;", fd); break;
+    case jump_elseif:        fputs("else", fd); break;
+    case case_else:          fputs("case else;", fd); break;
+    case choose_case:{
+      struct instruction *rhs = statement->end->stack[0];
+      fputs("choose case ", fd);
+      printf_instruction(fd, disassembly, rhs, 0);
+      fputc(';', fd);
+    }break;
+    case case_if:
+      fputs("case ", fd);
+      printf_case(fd, disassembly, statement->end->stack[0]);
+      fputc(';', fd);
+      break;
+    case if_then:
+      fputs("if ", fd);
+      printf_instruction(fd, disassembly, statement->end->stack[0], 0);
+      fputs(" then ", fd);
+      break;
+    case do_while:
+      fputs("do while ", fd);
+      printf_instruction(fd, disassembly, statement->end->stack[0], 0);
+      fputs(";", fd);
+      break;
+    case do_until:
+      fputs("do until ", fd);
+      printf_instruction(fd, disassembly, statement->end->stack[0], 0);
+      fputs(";", fd);
+      break;
+    case loop_while:
+      fputs("loop while ", fd);
+      printf_instruction(fd, disassembly, statement->end->stack[0], 0);
+      fputs(";", fd);
+      break;
+    case loop_until:
+      fputs("loop until ", fd);
+      printf_instruction(fd, disassembly, statement->end->stack[0], 0);
+      fputs(";", fd);
+      break;
+    case exception_catch:{
+      struct instruction *inst = statement->end->stack[0]->stack[0];
+      unsigned var = inst->args[0];
+      struct variable_definition *variable = disassembly->script->local_variables[var];
+      fprintf(fd, "catch (%s %s);", variable->type, variable->name);
+    }break;
+    case for_init:{
+      struct statement *incr = statement->next->next;
+      struct statement *cmp = incr->next;
+      // TODO for [var] = [init] to [end] [step [N]]
+      // for now, C style;
+      fputs("for(", fd);
+      printf_instruction(fd, disassembly, statement->end, 0);
+      fputc(' ', fd);
+      printf_instruction(fd, disassembly, cmp->end->stack[0], 0);
+      fputs("; ", fd);
+      printf_instruction(fd, disassembly, incr->end, 0);
+      fputc(')', fd);
+      return cmp->next;
+    }break;
+    case mem_append:{
+      struct instruction *lhs = statement->end->stack[1];
+      struct instruction *rhs = statement->end->stack[0]->stack[0];
+      printf_instruction(fd, disassembly, lhs, 0);
+      fputs(" += ", fd);
+      printf_instruction(fd, disassembly, rhs, 0);
+      fputc(';', fd);
+    }break;
+    default:
+      printf_instruction(fd, disassembly, statement->end, 0);
+      break;
+  }
+  return statement->next;
+}
+
 void dump_statements(FILE *fd, struct disassembly *disassembly){
   if (IFDEBUG(DISASSEMBLY))
     dump_script_resources(fd, disassembly->group, disassembly->script);
-  unsigned i;
+
   struct print_state state = {.line=1, .indent=0};
-
-  for (i=0;i<disassembly->statement_count;i++){
-    struct statement *statement = state.statement = disassembly->statements[i];
-
+  struct statement *statement = disassembly->statements[0];
+  while(statement){
+    state.statement = statement;
     state.scope_count = begin_scope(fd, &state, statement->scope);
 
     if (statement->classified_count < statement->destination_count){
@@ -1069,81 +1291,14 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
 	fputeol(fd, &state);
     }
 
+    struct statement *nxt;
     if (IFDEBUG(DISASSEMBLY) || statement->type != generated){
       while (state.line < statement->start_line_number)
 	fputeol(fd, &state);
 
-      // special cases;
-      switch(statement->type){
-	case exception_try:	fputs("try;", fd); break;
-	case exception_end_try:	fputs("end try;", fd); break;
-	case jump_loop:		fputs("loop;", fd); break;
-	case jump_next:		fputs("next;", fd); break;
-	case jump_exit:		fputs("exit;", fd); break;
-	case jump_continue:	fputs("continue;", fd); break;
-	case jump_else:		fputs("else;", fd); break;
-	case jump_elseif:	fputs("else", fd); break;
-	case if_then:
-	  fputs("if ", fd);
-	  printf_instruction(fd, disassembly, statement->end->stack[0], 0);
-	  fputs(" then ", fd);
-	  break;
-	case do_while:
-	  fputs("do while ", fd);
-	  printf_instruction(fd, disassembly, statement->end->stack[0], 0);
-	  fputs(";", fd);
-	  break;
-	case do_until:
-	  fputs("do until ", fd);
-	  printf_instruction(fd, disassembly, statement->end->stack[0], 0);
-	  fputs(";", fd);
-	  break;
-	case loop_while:
-	  fputs("loop while ", fd);
-	  printf_instruction(fd, disassembly, statement->end->stack[0], 0);
-	  fputs(";", fd);
-	  break;
-	case loop_until:
-	  fputs("loop until ", fd);
-	  printf_instruction(fd, disassembly, statement->end->stack[0], 0);
-	  fputs(";", fd);
-	  break;
-	case exception_catch:{
-	  struct instruction *inst = statement->end->stack[0]->stack[0];
-	  unsigned var = inst->args[0];
-	  struct variable_definition *variable = disassembly->script->local_variables[var];
-	  fprintf(fd, "catch (%s %s);", variable->type, variable->name);
-	}break;
-	case for_init:
-	  // TODO for [var] = [init] to [end] [step [N]]
-	  // for now, C style;
-	  fputs("for(", fd);
-	  printf_instruction(fd, disassembly, statement->end, 0);
-	  fputc(' ', fd);
-	  printf_instruction(fd, disassembly, disassembly->statements[i+3]->end->stack[0], 0);
-	  fputs("; ", fd);
-	  printf_instruction(fd, disassembly, disassembly->statements[i+2]->end, 0);
-	  fputc(')', fd);
-	  i+=3;// skip other instructions completely
-	  break;
-	case mem_append:{
-	  struct instruction *lhs = statement->end->stack[1];
-	  struct instruction *rhs = statement->end->stack[0]->stack[0];
-	  printf_instruction(fd, disassembly, lhs, 0);
-	  fputs(" += ", fd);
-	  printf_instruction(fd, disassembly, rhs, 0);
-	  fputc(';', fd);
-	}break;
-	default:
-	  printf_instruction(fd, disassembly, statement->end, 0);
-	  break;
-      }
-
-      // For now just add comments for known special cases;
-      switch(statement->type){
-	case generated:		fprintf(fd, " /* GENERATED? */"); break;
-	default: break;
-      }
+      nxt = printf_statement(fd, disassembly, statement);
+    }else{
+      nxt = statement->next;
     }
 
     struct scope *scope = statement->scope;
@@ -1163,6 +1318,7 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
       }
       scope = scope->parent;
     }
+    statement = nxt;
   }
 }
 
