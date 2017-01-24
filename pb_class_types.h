@@ -5,25 +5,23 @@
 
 #pragma pack(push,1)
 
-enum pb_versions{
 // Powerbuilder
-  PB3 = 17,
-  PB4 = 21,
-  PB5 = 79,
-  PB6 = 114,
-  PB7 = 146,
-  PB8 = 166,
-  PB9 = 193,
-  PB10 = 238,
-  PB10_5 = 283,
-  PB11 = 316,
-  PB11_5 = 321,
-  PB12 = 325,
-  PB12_5 = 333,
+#define PB30 17
+#define PB40 21
+#define PB50 79
+#define PB60 114
+#define PB70 146
+#define PB80 166
+#define PB90 193
+#define PB100 238
+#define PB105 283
+#define PB110 316
+#define PB115 321
+#define PB120 325
+#define PB125 333
 //PocketBuilder
-  PK2 = 175,
-  PK2_5 = 188
-};
+#define PK20 175
+#define PK25 188
 
 enum pbtype{
   pbvalue_notype = 0,

@@ -1,7 +1,12 @@
-
+#if BEFORE(PB105)
 DEFINE_OP(SM_RETURN, 2, stack_action_indirect, 0, 0, "return ", STACK_CSV, END)
+#endif
+
+#if AFTER(PB105)
 DEFINE_OP(SM_RETURN, 0, stack_none, 0, 0)
 DEFINE_OP(SM_STORE_RETURN_VAL, 1, stack_action_indirect, 0, 0, "return ", STACK_CSV, END)
+#endif
+
 DEFINE_OP(SM_JUMPTRUE, 1, stack_action, 1, 0, "if ", STACK, 0, " then goto Offset_", ARG_INT, 0, END)
 DEFINE_OP(SM_JUMPFALSE, 1, stack_action, 1, 0, "if (not) ", STACK, 0, " then goto Offset_", ARG_INT, 0, END)
 DEFINE_OP(SM_JUMP, 1, stack_none, 0, 0, "goto Offset_", ARG_INT, 0, END)
@@ -31,8 +36,12 @@ DEFINE_OP(SM_DBEXECDYNPROC, 3, stack_unknown, 0, 0)
 DEFINE_OP(SM_DBDESCRIBE, 0, stack_unknown, 0, 0)
 DEFINE_OP(SM_DBSELECTBLOB, 4, stack_unknown, 0, 0)
 DEFINE_OP(SM_DBUPDATEBLOB, 3, stack_unknown, 0, 0)
+
+#if AFTER(PB100)
 DEFINE_OP(SM_DBSELECTCLOB, 5, stack_unknown, 0, 0)
 DEFINE_OP(SM_DBUPDATECLOB, 4, stack_unknown, 0, 0)
+#endif
+
 DEFINE_OP(SM_PUSH_LOCAL_VAR, 1, stack_result, 0, 0, LOCAL, 0)
 DEFINE_OP(SM_PUSH_SHARED_VAR, 1, stack_result, 0, 0, SHARED, 0)
 DEFINE_OP(SM_PUSH_CONST_REF, 2, stack_result, 0, 0, RES, 0)
@@ -303,8 +312,14 @@ DEFINE_OP(SM_POP_POP, 0, stack_popn, 2, 0)
 DEFINE_OP(SM_POP_FREE, 0, stack_popn, 2, 0)
 DEFINE_OP(SM_FREE_POP, 0, stack_popn, 2, 0)
 DEFINE_OP(SM_FREE_FREE, 0, stack_popn, 2, 0)
+
+#if BEFORE(PB90)
 DEFINE_OP(SM_COPY_ARRAY_INSTANCE, 0, stack_result, 1, 0, STACK, 0)
+#endif
+#if AFTER(PB90)
 DEFINE_OP(SM_COPY_ARRAY_INSTANCE, 1, stack_tweak_indirect, 0, 0, STACK, 0)
+#endif
+
 DEFINE_OP(SM_COPY_STRUCTURE_INSTANCE, 1, stack_tweak_indirect, 0, 0, STACK, 0)
 DEFINE_OP(SM_COPY_CONST_DOUBLE, 1, stack_tweak_indirect, 0, 0, STACK, 0)
 DEFINE_OP(SM_COPY_CONST_DEC, 1, stack_tweak_indirect, 0, 0, STACK, 0)
@@ -401,8 +416,12 @@ METHOD(INT, int, 0, 1)
 METHOD(ABS_LONG, abs, 0, 1)
 METHOD(ABS_DOUBLE, abs, 0, 1)
 METHOD(ASC, asc, 1, 1)
+#if BEFORE(PB100)
 METHOD(BLOB, blob, 1, 1)
+#endif
+#if AFTER(PB100)
 DEFINE_OP(SM_BLOB, 2, stack_result_indirect, 1, 0, "::blob(", STACK_CSV, ")")
+#endif
 METHOD(CEILING, ceiling, 0, 1)
 METHOD(COS, cos, 0, 1)
 METHOD(EXP, exp, 0, 1)
@@ -410,12 +429,22 @@ METHOD(FACT, fact, 0, 1)
 METHOD(INTHIGH, inthigh, 0, 1)
 METHOD(INTLOW, intlow, 0, 1)
 METHOD(ISDATE, isdate, 1, 1)
+
+#if BEFORE(PB100)
 METHOD(ISNULL, isnull, 0, 1)
+#endif
+#if AFTER(PB100)
 METHOD(ISNULL, isnull, 1, 1)
+#endif
+
 METHOD(ISNUMBER, isnumeric, 1, 1)
 METHOD(ISTIME, istime, 1, 1)
 METHOD(ISVALID, isvalid, 0, 1)
+#if BEFORE(PB120)
+//guess...
 METHOD(LEFTTRIM, ltrim, 1, 1)
+#endif
+
 METHOD(LEN_STRING, len, 1, 1)
 METHOD(LEN_BINARY, len, 1, 1)
 METHOD(LOG, log, 0, 1)
@@ -424,11 +453,19 @@ METHOD(LOWER, lower, 1, 1)
 METHOD(PI, pi, 0, 0)
 METHOD(RAND_LONG, rand, 0, 1)
 METHOD(RAND_DOUBLE, rand, 0, 1)
+
+#if BEFORE(PB120)
 METHOD(RIGHTTRIM, rtrim, 1, 1)
+#endif
+
 METHOD(SIN, sin, 0, 1)
 METHOD(SQRT, sqrt, 0, 1)
 METHOD(TAN, tan, 0, 1)
+
+#if BEFORE(PB120)
 METHOD(TRIM, trim, 1, 1)
+#endif
+
 METHOD(UPPER, upper, 1, 1)
 DEFINE_OP(SM_CONV_TO_REFPAK, 0, stack_result, 1, 0, STACK, 0)
 DEFINE_OP(SM_PUSH_LOCAL_GLOBREF_RP, 1, stack_result, 0, 0, EXT, 0)
@@ -436,8 +473,15 @@ DEFINE_OP(SM_PUSH_LOCAL_ARGREF_RP, 1, stack_result, 0, 0, LOCAL, 0)
 DEFINE_OP(SM_PUSH_SHARED_GLOBREF_RP, 1, stack_result, 0, 0, SHARED, 0)
 DEFINE_OP(SM_PUSH_LOCAL_VAR_RP, 1, stack_result, 0, 0, LOCAL, 0)
 DEFINE_OP(SM_PUSH_SHARED_VAR_RP, 1, stack_result, 0, 0, SHARED, 0)
+
+// guessing a bit...
+#if BEFORE(PB6)
 DEFINE_OP(SM_TRANSFORM_BOUNDED_TO_BOUNDED, 4, stack_result, 1, 0, STACK, 0)
+#endif
+#if AFTER(PB6)
 DEFINE_OP(SM_TRANSFORM_BOUNDED_TO_BOUNDED, 5, stack_result, 1, 0, STACK, 0)
+#endif
+
 DEFINE_OP(SM_TRANSFORM_BOUNDED_TO_UNBOUNDED, 1, stack_result, 1, 0, STACK, 0)
 DEFINE_OP(SM_TRANSFORM_UNBOUNDED_TO_BOUNDED, 4, stack_result, 1, 0, STACK, 0)
 DEFINE_OP(SM_TRANSFORM_UNBOUNDED_TO_UNBOUNDED, 1, stack_result, 1, 0, STACK, 0)
@@ -450,10 +494,14 @@ DEFINE_OP(SM_TRANSFORM_ARRAYLIST_TO_UNBOUNDED, 3, stack_result, 1, 0, STACK, 0)
 DEFINE_OP(SM_TRANSFORM_ARRAYLIST_TO_BOUNDED, 5, stack_result, 1, 0, STACK, 0)
 DEFINE_OP(SM_FREE_REF_PAK_N, 1, stack_tweak_indirect1, 0, 0)
 DEFINE_OP(SM_ARRAY_BOUND_INFO, 4, stack_none, 0, 0)
+#if BEFORE(PB100)
 METHOD(LOWERBOUND, lowerbound, 1, 1)
-METHOD(LOWERBOUND, lowerbound, 2, 1)
 METHOD(UPPERBOUND, upperbound, 1, 1)
+#endif
+#if AFTER(PB100)
+METHOD(LOWERBOUND, lowerbound, 2, 1)
 METHOD(UPPERBOUND, upperbound, 2, 1)
+#endif
 UN_OP_ASSIGN(INCR, ANY)
 UN_OP_ASSIGN(DECR, ANY)
 DEFINE_OP(SM_PUSH_FUNC_CLASS, 2, stack_result, 0, 0, FUNC_CLASS)
@@ -478,6 +526,10 @@ DEFINE_OP(SM_ENTER_EMBEDDED, 1, stack_none, 0, 0)
 DEFINE_OP(SM_EXIT_EMBEDDED, 0, stack_none, 0, 0)
 DEFINE_OP(SM_DOT_FLD_UPDATE_INDEX_RP, 0, stack_result, 4, 0, STACK, 3, ".", STACK, 2, "[", STACK, 1, "]")
 DEFINE_OP(SM_CNV_STRING_TO_BOUNDED_CHARARRAY, 2, stack_tweak_indirect, 0, 0)
+
+// somewhere between PB5 and PB8...
+
+#if AFTER(PB60)
 DEFINE_OP(SM_PUSH_NTH_PARENT, 1, stack_result, 0, 0)
 METHOD(MOD_ULONG, mod, 0, 2)
 METHOD(MOD_LONG, mod, 0, 2)
@@ -497,12 +549,18 @@ METHOD(MAX_ULONG, max, 0, 2)
 METHOD(MAX_DOUBLE, max, 0, 2)
 METHOD(MAX_DEC, max, 0, 2)
 METHOD(MAX_ANY, max, 0, 2)
+#endif
+
+#if AFTER(PB80)
 DEFINE_OP(SM_PUSH_TRY, 2, stack_none, 0, 0, "try", END)
 DEFINE_OP(SM_POP_TRY, 0, stack_none, 0, 0)
 DEFINE_OP(SM_CATCH_EXCEPTION, 0, stack_result, 1, 0)
 DEFINE_OP(SM_THROW_EXCEPTION, 0, stack_action, 1, 0)
 DEFINE_OP(SM_GOSUB, 1, stack_none, 0, 0)
 DEFINE_OP(SM_RETURN_SUB, 0, stack_none, 0, 0)
+#endif
+
+#if AFTER(PB90)
 CONVERT(INT, LONGLONG)
 CONVERT(UINT, LONGLONG)
 CONVERT(LONG, LONGLONG)
@@ -559,6 +617,9 @@ DEFINE_OP(SM_INDEX_LONGLONG, 0, stack_result, 3, 0)
 CONVERT(ANY, LONGLONG)
 DEFINE_OP(SM_CONV_LONGLONG_RVALUE_TO_PTR, 1, stack_result, 1, 0)
 DEFINE_OP(SM_INDEX_ERR_CHK_LONGLONG, 0, stack_result, 3, 0)
+#endif
+
+#if AFTER(PB105)
 DEFINE_OP(SM_PUSH_CONST_BYTE, 1, stack_result, 0, 0)
 CONVERT(INT, BYTE)
 CONVERT(UINT, BYTE)
@@ -595,3 +656,4 @@ CMP(GT, BYTE)
 CMP(LT, BYTE)
 CMP(GE, BYTE)
 CMP(LE, BYTE)
+#endif

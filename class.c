@@ -44,7 +44,7 @@ const void *get_table_ptr(struct class_group_private *class_group, struct data_t
     offset = offset & ~0x80000000;
   }
 
-  if (offset == 0xFFFF)
+  if (offset == 0xFFFF || offset == 0)
     return NULL;
 
   if (offset > table->data_length){
@@ -73,7 +73,7 @@ const struct pbtable_info *get_table_info(struct class_group_private *class_grou
 }
 
 const char *get_table_string(struct class_group_private *class_group, struct data_table *table, uint32_t offset){
-  if (class_group->header.compiler_version<PB10)
+  if (class_group->header.compiler_version<PB100)
     return (const char *)get_table_ptr(class_group, table, offset);
   return pool_dup_u(class_group->pool, (const UChar *)get_table_ptr(class_group, table, offset));
 }
@@ -220,7 +220,7 @@ const char *get_table_resource(struct class_group_private *class_group, struct d
       intmax_t magnitude=0; // probably not big enough, but should work for smaller constants.
       uint8_t sign;
       uint8_t exponent;
-      if (class_group->header.compiler_version <= PB10){
+      if (class_group->header.compiler_version <= PB100){
 	struct pb_old_decimal *dec = (struct pb_old_decimal *)ptr;
 	sign = dec->sign;
 	exponent = dec->exponent;
@@ -352,7 +352,7 @@ static void dump_table(FILE *fd, struct class_group_private *class_group, struct
     }
 
     unsigned data_len;
-    if (class_group->header.compiler_version<PB10){
+    if (class_group->header.compiler_version<PB100){
       const char *str = (const char *)&table->data[offset];
       data_len = strlen(str)+1;
       if (entry < table->metadata_count && offset + data_len > table->metadata[entry].offset){
@@ -613,20 +613,36 @@ static void init_values(struct class_group_private *class_group, struct data_tab
   }
 
   if (variable->type->value.flags & 0x2000){
+    //DEBUGF(PARSE, "Array @%08x", variable->type->value.value);
+    uint32_t offset=0;
     const void *ptr = get_table_ptr(class_group, table, variable->type->value.value);
     if (!ptr)
       return;
     const struct pbarray_values *definition = ptr;
+    //DUMP_STRUCT(PARSE, definition);
+
+    offset=sizeof(*definition);
+
     if (definition->dimensions==0)
       return;
-    const struct pbarray_dimension *dimensions = ptr+sizeof(*definition);
-    const struct pbvalue *values = ptr+sizeof(*definition)+(sizeof(*dimensions) * definition->dimensions);
+
+    const struct pbarray_dimension *dimensions = ptr + offset;
+    offset+=sizeof(struct pbarray_dimension)*definition->dimensions;
+
+    assert(variable->type->value.value + offset <= table->data_length);
+    //DUMP_ARRAY(PARSE, dimensions, definition->dimensions);
+
     unsigned i;
     unsigned count=1;
     for (i=0;i<definition->dimensions;i++)
       count*=dimensions[i].upper - dimensions[i].lower + 1;
     if (count==0)
       return;
+
+    const struct pbvalue *values = ptr + offset;
+    offset += count * sizeof(struct pbvalue);
+    assert(variable->type->value.value + offset <= table->data_length);
+
     variable->pub.value_count = count;
     variable->pub.initial_values = pool_alloc_array(class_group->pool, const char *, count+1);
     for (i=0;i<count;i++)
@@ -752,7 +768,7 @@ struct class_group *class_parse(struct lib_entry *entry){
     class_group->header.pb_type);
 
   assert(class_group->header.format_version == 3);
-  assert(class_group->header.compiler_version >= PB6);
+  assert(class_group->header.compiler_version >= PB60);
 
   read_type(entry, class_group->ext_ref_count);
   if (class_group->ext_ref_count){
@@ -835,6 +851,7 @@ struct class_group *class_parse(struct lib_entry *entry){
 
   for (i=0;i<type_count;i++){
     class_group->pub.types[i].name = get_type_name(class_group, class_group->type_headers[i].type);
+    class_group->pub.types[i].system = (class_group->type_headers[i].type & 0x4000) ? 1:0;
     if ((class_group->type_headers[i].flags & 0xFF) == 3){
       // essentially in pbvmXX.dll(_typedef.grp) only
       class_group->pub.types[i].type = enum_type;

@@ -84,6 +84,7 @@ struct type_definition{
     struct class_definition *class_definition;
     struct enumeration *enum_definition;
   };
+  uint8_t system:1;
 };
 
 struct class_group{

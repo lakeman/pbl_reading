@@ -172,10 +172,16 @@ enum operation{
 
 // define an enum with unique instruction id's
 #define __DEFINE(NAME,ARGS, ...) NAME##_##ARGS,
+#define BEFORE(X) 1
+#define AFTER(X) 1
+
 enum pcodeid{
 #include "opcodes.inc"
 MAX_ID
 };
+
+#undef BEFORE
+#undef AFTER
 #undef __DEFINE
 
 // ways that instructions interaction with the stack?
@@ -220,12 +226,25 @@ struct disassembly{
   struct statement **statements;
 };
 
+extern struct pcode_def *PB50_opcodes[];
+extern struct pcode_def *PB80_opcodes[];
+extern struct pcode_def *PB90_opcodes[];
+extern struct pcode_def *PB100_opcodes[];
+extern struct pcode_def *PB105_opcodes[];
 extern struct pcode_def *PB120_opcodes[];
+
+extern unsigned PB50_maxcode;
+extern unsigned PB80_maxcode;
+extern unsigned PB90_maxcode;
+extern unsigned PB100_maxcode;
+extern unsigned PB105_maxcode;
+extern unsigned PB120_maxcode;
 
 // this should probably be in a different header....
 struct disassembly *disassemble(struct class_group *group, struct class_definition *class_def, struct script_definition *script);
 void dump_pcode(FILE *fd, struct disassembly *disassembly);
 void dump_statements(FILE *fd, struct disassembly *disassembly);
+void dump_raw_pcode(FILE *fd, struct script_definition *script);
 void disassembly_free(struct disassembly *disassembly);
 
 #endif

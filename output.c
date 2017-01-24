@@ -61,16 +61,28 @@ static void write_variables(FILE *fd, int user_defined, const char *type, struct
     fprintf(fd, "end variables\n\n");
 }
 
-static void write_type_dec(FILE *fd, const char *name, struct class_definition *class_def){
+static int write_type_dec(FILE *fd, struct type_definition *type_def){
+  if (type_def->type != enum_type && type_def->type != class_type)
+    return 0;
+
   // global?
-  fprintf(fd, "type %s", name);
-  if (class_def->ancestor)
-    fprintf(fd, " from %s", class_def->ancestor);
-  if (class_def->parent)
-    fprintf(fd, " within %s", class_def->parent);
-  if (class_def->autoinstantiate)
-    fprintf(fd, " autoinstantiate");
+  if (type_def->system)
+    fprintf(fd, "system ");
+  fprintf(fd, "type %s", type_def->name);
+
+  if (type_def->type == class_type){
+    struct class_definition *class_def = type_def->class_definition;
+    if (class_def->ancestor)
+      fprintf(fd, " from %s", class_def->ancestor);
+    if (class_def->parent)
+      fprintf(fd, " within %s", class_def->parent);
+    if (class_def->autoinstantiate)
+      fprintf(fd, " autoinstantiate");
+  }else{
+    fprintf(fd, " enumerated");
+  }
   fprintf(fd, "\n");
+  return 1;
 }
 
 static void write_forward(FILE *fd, struct class_group *group){
@@ -78,10 +90,17 @@ static void write_forward(FILE *fd, struct class_group *group){
   // TODO this probably isn't quite right for nested classes, eg menu's
   unsigned i;
   for (i=0;i<group->type_count;i++){
-    if (group->types[i].type == class_type){
-      write_type_dec(fd, group->types[i].name, group->types[i].class_definition);
-      fprintf(fd, "end type\n");
+    if (!write_type_dec(fd, &group->types[i]))
+      continue;
+
+    if (group->types[i].type == enum_type){
+      struct enumeration *enum_def = group->types[i].enum_definition;
+      unsigned j;
+      for (j=0;j<enum_def->value_count;j++)
+	fprintf(fd, "%s! = %u\n", enum_def->values[j].name, enum_def->values[j].value);
     }
+
+    fprintf(fd, "end type\n");
   }
   write_variables(fd, 0, NULL, group->global_variables);
   fprintf(fd, "end forward\n\n");
@@ -90,7 +109,7 @@ static void write_forward(FILE *fd, struct class_group *group){
 static void write_method_header(FILE *fd, struct script_definition *script){
   if (script->hidden){
     // not sure what the right syntax is for this undocumented flag
-    fprintf(fd, "/* HIDDEN! */ ");
+    fprintf(fd, "/* Deprecated */ ");
   }
   if (script->event_type){
     fprintf(fd, "event %s %s", script->name+1, script->event_type);
@@ -175,7 +194,10 @@ static void write_script_body(FILE *fd, struct class_group *group, struct class_
     //dump_pcode(fd, code);
     //fprintf(fd, "*/\n");
     disassembly_free(code);
+  }else{
+    dump_raw_pcode(fd, script);
   }
+
   if (script->event)
     fprintf(fd, "\nend event\n\n");
   else if(script->return_type)
@@ -184,8 +206,10 @@ static void write_script_body(FILE *fd, struct class_group *group, struct class_
     fprintf(fd, "\nend subroutine\n\n");
 }
 
-static void write_class(FILE *fd, struct class_group *UNUSED(group), const char *name, struct class_definition *class_def){
-  write_type_dec(fd, name, class_def);
+static void write_class(FILE *fd, struct class_group *UNUSED(group), struct type_definition *type_def){
+  struct class_definition *class_def = type_def->class_definition;
+
+  write_type_dec(fd, type_def);
   write_variables(fd, 0, NULL, class_def->instance_variables);
 
   unsigned i;
@@ -230,6 +254,6 @@ void write_group(FILE *fd, struct class_group *group){
   unsigned i;
   for (i=0;i<group->type_count;i++){
     if (group->types[i].type == class_type)
-      write_class(fd, group, group->types[i].name, group->types[i].class_definition);
+      write_class(fd, group, &group->types[i]);
   }
 }

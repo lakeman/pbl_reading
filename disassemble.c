@@ -668,6 +668,26 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
   if (!script_def || !script_def->body || !script_def->body->code)
     return NULL;
 
+  struct pcode_def **opcodes = NULL;
+  unsigned max_opcode = 0;
+
+  {
+    struct class_group_private *group_def = (struct class_group_private *)group;
+    switch (group_def->header.compiler_version){
+#define CODE(X) case X: opcodes = X ## _opcodes; max_opcode = X ## _maxcode; break
+      CODE(PB50);
+      CODE(PB80);
+      CODE(PB90);
+      CODE(PB100);
+      CODE(PB105);
+      CODE(PB120);
+#undef CODE
+    }
+
+    if (!opcodes)
+      return NULL;
+  }
+
   struct pool *pool = pool_create();
   struct disassembly *disassembly = pool_alloc_type(pool, struct disassembly);
   memset(disassembly, 0, sizeof(struct disassembly));
@@ -686,6 +706,7 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
   unsigned debug_line=0;
 
   unsigned instruction_count=0;
+  // temp space on the stack, can't be more than this; will usually be much less.
   struct instruction *instructions[script_def->body->code_size/2];
 
   while(offset < script_def->body->code_size){
@@ -697,11 +718,15 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
     const uint16_t *pc = (const uint16_t*)&script_def->body->code[offset];
     uint16_t opcode = pc[0];
 
+    assert(opcode < max_opcode);
+
     struct instruction *inst = instructions[instruction_count++] = pool_alloc_type(pool, struct instruction);
     memset(inst, 0, sizeof(struct instruction));
     inst->offset = offset;
     inst->opcode = opcode;
-    inst->definition = PB120_opcodes[opcode];
+    inst->definition = opcodes[opcode];
+    assert(inst->definition);
+
     inst->args = pc+1;
     inst->line_number = script_def->body->debug_lines[debug_line].line_number;
 
@@ -744,7 +769,6 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
 	//case SM_GOSUB_1:
 	//case SM_POP_TRY_0: // only the last one will end up as exception_end_try
 	case SM_RETURN_SUB_0:
-	case SM_RETURN_0:
 	  statement->type=generated;
 	  break;
 
@@ -823,7 +847,16 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
       disassembly->statements[i] = ptr;
       ptr = ptr->next;
     }
+    assert(!ptr);
+
     disassembly->statements[disassembly->statement_count]=NULL;
+    if (disassembly->statement_count){
+      // pre 10.5, there's always an extra return at the end.
+      // post 10.5, the code always sets the return value and jumps to the end
+      ptr = disassembly->statements[disassembly->statement_count-1];
+      if (ptr->end->definition->id == SM_RETURN_0 || ptr->end->definition->id == SM_RETURN_2)
+	ptr->type=generated;
+    }
 
     link_destinations(disassembly);
   }
@@ -1273,6 +1306,30 @@ static struct statement * printf_statement(FILE *fd, struct disassembly *disasse
       break;
   }
   return statement->next;
+}
+
+void dump_raw_pcode(FILE *fd, struct script_definition *script){
+  struct script_def_private *script_def = (struct script_def_private *)script;
+
+  if (!script_def || !script_def->body || !script_def->body->code)
+    return;
+  const uint8_t *code = script_def->body->code;
+  unsigned i;
+  for (i=0;i<script_def->body->debugline_count -1;i++){
+    uint16_t start = script_def->body->debug_lines[i].pcode_offset;
+    uint16_t end = script_def->body->debug_lines[i+1].pcode_offset;
+    fprintf(fd, "Line_%u:\n", script_def->body->debug_lines[i].line_number);
+    _dump(fd, NULL, 0, &code[start], end - start, 16, 0);
+  }
+
+  uint16_t start = 0;
+  if (script_def->body->debugline_count){
+    i = script_def->body->debugline_count - 1;
+    start = script_def->body->debug_lines[i].pcode_offset;
+    fprintf(fd, "Line_%u:\n", script_def->body->debug_lines[i].line_number);
+  }
+  uint16_t end = script_def->body->code_size;
+  _dump(fd, NULL, 0, &code[start], end - start, 16, 0);
 }
 
 void dump_statements(FILE *fd, struct disassembly *disassembly){
