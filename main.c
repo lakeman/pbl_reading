@@ -9,9 +9,21 @@
 #include "class.h"
 #include "output.h"
 
+static void trace(){
+  void *array[64];
+  size_t size;
+
+  // get void*'s for all entries on the stack
+  size = backtrace(array, 64);
+
+  // print out all the frames to stderr
+  backtrace_symbols_fd(array, size, STDERR_FILENO);
+}
+
 void __assert_fail(const char * assertion, const char * file, unsigned int line, const char * function) {
   fflush(stdout);
   fprintf(stderr, "Assert: (%s) failed at %s:%d in function %s\n", assertion, file, line, function);
+  raise(SIGSEGV);
   exit(-1);
 }
 
@@ -21,16 +33,8 @@ static void callback(struct lib_entry *entry, void *UNUSED(context)){
 
 static void handler(int sig) {
   fflush(stdout);
-
-  void *array[64];
-  size_t size;
-
-  // get void*'s for all entries on the stack
-  size = backtrace(array, 64);
-
-  // print out all the frames to stderr
   fprintf(stderr, "Error: signal %d:\n", sig);
-  backtrace_symbols_fd(array, size, STDERR_FILENO);
+  trace();
   exit(-1);
 }
 

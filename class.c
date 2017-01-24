@@ -47,7 +47,11 @@ const void *get_table_ptr(struct class_group_private *class_group, struct data_t
   if (offset == 0xFFFF)
     return NULL;
 
-  assert(offset < table->data_length);
+  if (offset > table->data_length){
+    WARNF("%08x > %08x", offset, table->data_length);
+    assert(offset < table->data_length);
+    return NULL;
+  }
   return &table->data[offset];
 }
 
@@ -135,7 +139,7 @@ const char *quote_escape_string(struct class_group_private *class_group, const c
   return ret;
 }
 
-static const char *get_indirect_arg_name(struct class_group_private *class_group, struct data_table *table, const struct pbindirect_arg *arg){
+static const char *get_indirect_arg_name(struct class_group_private *class_group, const struct pbindirect_arg *arg){
   switch(arg->indirect_type){
     case indirect_name:
       return "*name";
@@ -150,38 +154,50 @@ static const char *get_indirect_arg_name(struct class_group_private *class_group
     case indirect_dims:
       return "*dims";
   }
-  return get_table_string(class_group, table, arg->expression_offset);
+  return get_table_string(class_group, &class_group->function_name_table, arg->expression_offset);
 }
 
-static const char *get_indirect_func(struct class_group_private *class_group, struct data_table *table, const struct pbindirect_func *func){
+static const char *get_indirect_func(struct class_group_private *class_group, const struct pbindirect_func *func){
   if (!func)
     return NULL;
+  if (func->name_offset == 0 || func->name_offset == 0xFFFF)
+    return NULL;
+
+  struct data_table *table = &class_group->function_name_table;
   const char *name = get_table_string(class_group, table, func->name_offset);
   if (!name)
     return NULL;
+
   const char *args[func->arg_count];
-  const struct pbindirect_arg *args_ptr = func->arg_count ? get_table_ptr(class_group, table, func->args_offset) : NULL;
+  const struct pbindirect_arg *args_ptr = NULL;
+  if (func->arg_count){
+    args_ptr = get_table_ptr(class_group, table, func->args_offset);
+  }
   unsigned i;
   size_t len=strlen(name)+2;
   for (i=0;i<func->arg_count;i++){
-    args[i] = get_indirect_arg_name(class_group, table, &args_ptr[i]);
+    args[i] = get_indirect_arg_name(class_group, &args_ptr[i]);
     len += args[i] ? strlen(args[i]) : 0;
     if (i>0)
       len+=2;
   }
   char buff[len+1], *p=buff;
-  p=strcat(p, name);
+  strcpy(p, name);
+  p+=strlen(name);
   *p++='(';
   for (i=0;i<func->arg_count;i++){
     if (i>0){
       *p++=',';
       *p++=' ';
     }
-    if (args[i])
-      p=strcat(p, args[i]);
+    if (args[i]){
+      strcpy(p, args[i]);
+      p+=strlen(args[i]);
+    }
   }
   *p++=')';
   *p++=0;
+  assert(p==buff+sizeof(buff));
   return  pool_dupn(class_group->pool, buff, len);
 }
 
@@ -264,9 +280,9 @@ const char *get_table_resource(struct class_group_private *class_group, struct d
 	return pool_sprintf(class_group->pool, "method_%u", ref->method_number);
     }
     case 16:
-      return get_indirect_arg_name(class_group, table, ptr);
+      return get_indirect_arg_name(class_group, ptr);
     case 17:
-      return get_indirect_func(class_group, table, ptr);
+      return get_indirect_func(class_group, ptr);
     case 18:{
       const struct pbcreate_ref *ref = (struct pbcreate_ref *)ptr;
       const char *name = get_table_string(class_group, table, ref->name_offset);
@@ -404,6 +420,12 @@ const char *get_type_name(struct class_group_private *class_group, uint16_t type
   if (type==0 || type == 0xC000)
     return NULL;
   if (type & 0x4000){
+    if (class_group->header.pb_type == 0){
+      // assume we're looking at system types
+      assert((type & ~0x4000)<class_group->type_list.count);
+      return class_group->type_list.names[(type & ~0x4000)];
+    }
+
     // cheating a bit, look for an external reference to this type
     // covers a lot of basic cases
     unsigned i;
@@ -585,7 +607,7 @@ static void init_values(struct class_group_private *class_group, struct data_tab
     variable->pub.initial_values = pool_alloc_array(class_group->pool, const char *, info->count+1);
     unsigned i;
     for (i=0;i<info->count;i++)
-      variable->pub.initial_values[i] = get_indirect_func(class_group, table, &funcs[i]);
+      variable->pub.initial_values[i] = get_indirect_func(class_group, &funcs[i]);
     variable->pub.initial_values[info->count] = NULL;
     return;
   }
@@ -728,6 +750,8 @@ struct class_group *class_parse(struct lib_entry *entry){
   DEBUGF(PARSE, "header, version %04x, system type %04x",
     class_group->header.compiler_version,
     class_group->header.pb_type);
+
+  assert(class_group->header.format_version == 3);
   assert(class_group->header.compiler_version >= PB6);
 
   read_type(entry, class_group->ext_ref_count);
@@ -831,7 +855,7 @@ struct class_group *class_parse(struct lib_entry *entry){
 
       unsigned k;
       for (k=0;k<count;k++){
-	enumeration->values[k].name = get_table_string(class_group, &class_group->main_table, values[k].name_offset);
+	enumeration->values[k].name = get_table_string(class_group, &class_group->enum_values.table, values[k].name_offset);
 	enumeration->values[k].value = values[k].value;
 	DEBUGF(PARSE, " - %s! = %u [%04x]", enumeration->values[k].name, values[k].value, values[k].unnamed);
       }
@@ -962,7 +986,6 @@ struct class_group *class_parse(struct lib_entry *entry){
 
       struct script_def_private *script_definitions = pool_alloc_array(class_group->pool, struct script_def_private, cls_header->script_count);
 
-      index=0;
       for (k=0;k<cls_header->script_count;k++){
 	class_def->pub.scripts[k]=&script_definitions[k].pub;
 
@@ -980,16 +1003,19 @@ struct class_group *class_parse(struct lib_entry *entry){
 	assert(script_def);
 
 	script_def->header = &script_headers[k];
-	if (index < implemented_count && implementations[index].number == short_headers[l].method_number){
-	  script_def->body = &implementations[index++];
-	  script_def->pub.implemented = 1;
-	  script_def->pub.local_variable_count = script_def->body->local_variables.count;
-	  script_def->pub.local_variables = type_defs_to_variables(class_group, &script_def->body->local_variables);
-	}else{
-	  script_def->pub.implemented = 0;
-	  script_def->pub.local_variable_count = 0;
-	  script_def->body = NULL;
-	  script_def->pub.local_variables = NULL;
+	script_def->pub.implemented = 0;
+	script_def->pub.local_variable_count = 0;
+	script_def->body = NULL;
+	script_def->pub.local_variables = NULL;
+
+	unsigned m=0;
+	for (m=0;m<implemented_count;m++){
+	  if (implementations[m].number == short_headers[l].method_number){
+	    script_def->body = &implementations[m];
+	    script_def->pub.implemented = 1;
+	    script_def->pub.local_variable_count = script_def->body->local_variables.count;
+	    script_def->pub.local_variables = type_defs_to_variables(class_group, &script_def->body->local_variables);
+	  }
 	}
 
 	script_def->pub.name = get_table_string(class_group, &class_group->function_name_table, script_headers[k].name_offset);
@@ -1014,7 +1040,6 @@ struct class_group *class_parse(struct lib_entry *entry){
 
 	build_arg_list(class_group, script_def);
       }
-      assert(index == implemented_count);
       class_def->pub.scripts[cls_header->script_count]=NULL;
 
       for (k=0;k<cls_header->script_count;k++){

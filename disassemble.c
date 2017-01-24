@@ -1281,6 +1281,13 @@ void dump_statements(FILE *fd, struct disassembly *disassembly){
 
   struct print_state state = {.line=1, .indent=0};
   struct statement *statement = disassembly->statements[0];
+
+  if (statement && statement->start_line_number > 20){
+    fprintf(fd, "Line_%u:", statement->start_line_number);
+    fputeol(fd, &state);
+    state.line = statement->start_line_number;
+  }
+
   while(statement){
     state.statement = statement;
     state.scope_count = begin_scope(fd, &state, statement->scope);

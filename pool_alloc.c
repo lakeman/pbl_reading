@@ -51,30 +51,45 @@ void pool_release(struct pool *pool){
 
 void *pool_alloc(struct pool *pool, size_t size, unsigned alignment){
   DEBUGF(ALLOC, "Allocating %zu", size);
-  assert(size <= BLOCK_SIZE - sizeof(struct buffer));
+
+  int mask = ((1<<alignment)-1);
+  struct buffer *buff = pool->current;
+
   while(1){
-    void *ret = pool->current->current;
-    int mask = ((1<<alignment)-1);
+    void *ret = buff->current;
     int rounding = ((uintptr_t)ret & mask);
     if (rounding){
-      ret+=(mask + 1 - rounding);
-      size+=(mask + 1 - rounding);
+      rounding = (mask + 1 - rounding);
+      ret += rounding;
     }
 
-    if (size > pool->current->remaining){
-      struct buffer *b = malloc(BLOCK_SIZE);
+    if (size + rounding < buff->remaining){
+      buff->current+=size + rounding;
+      buff->remaining-=size + rounding;
+      //DEBUGF(ALLOC,"pool_alloc(%p, %zu, %u) = %p, [from %p, remaining %zu]", pool, size, alignment, ret, pool->current, pool->current->remaining);
+      return ret;
+    }
+
+    if (!buff->next){
+      size_t alloc = BLOCK_SIZE;
+      // make sure we can service this allocation!
+      if (alloc < size + sizeof(struct buffer)){
+	// rounded up to the next block size.
+	alloc = (size + sizeof(struct buffer) & ~(BLOCK_SIZE-1)) + BLOCK_SIZE;
+      }
+      struct buffer *b = malloc(alloc);
       DEBUGF(ALLOC,"malloc() = %p", b);
       assert(b);
-      pool->current->next = b;
       init(pool, b);
-      b->remaining = BLOCK_SIZE - sizeof(struct buffer);
-      continue;
+      b->remaining = alloc - sizeof(struct buffer);
+      buff->next = b;
     }
 
-    pool->current->current+=size;
-    pool->current->remaining-=size;
-    //DEBUGF(ALLOC,"pool_alloc(%p, %zu, %u) = %p, [from %p, remaining %zu]", pool, size, alignment, ret, pool->current, pool->current->remaining);
-    return ret;
+    // stop checking a buffer once it is almost used.
+    if (buff == pool->current && buff->remaining < 64)
+      pool->current = buff->next;
+
+    buff = buff->next;
   }
 }
 

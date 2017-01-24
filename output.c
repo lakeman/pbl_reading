@@ -63,7 +63,9 @@ static void write_variables(FILE *fd, int user_defined, const char *type, struct
 
 static void write_type_dec(FILE *fd, const char *name, struct class_definition *class_def){
   // global?
-  fprintf(fd, "type %s from %s", name, class_def->ancestor);
+  fprintf(fd, "type %s", name);
+  if (class_def->ancestor)
+    fprintf(fd, " from %s", class_def->ancestor);
   if (class_def->parent)
     fprintf(fd, " within %s", class_def->parent);
   if (class_def->autoinstantiate)

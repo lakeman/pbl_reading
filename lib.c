@@ -49,9 +49,36 @@ struct library *lib_open(const char *filename){
   if (fd<0)
     return NULL;
 
-  // TODO look for a TRL block first
+  off_t header_offset = -1;
+  off_t len = lseek(fd, 0, SEEK_END);
+  assert(len>=0);
+  DEBUGF(LIB, "len %04x", (unsigned)len);
 
-  off_t header_offset = 0;
+  len = (len & ~(BLOCK_SIZE -1)) - BLOCK_SIZE;
+  unsigned i;
+  // look at trailing blocks until we find a TRL* or other valid block header
+  for (i=0;i<20;i++){
+    lseek(fd, len, SEEK_SET);
+    struct dat dat;
+    read(fd, &dat, sizeof(dat));
+    DEBUGF(LIB, "%04x @%04x", *(uint32_t*)&dat.type, (unsigned)len);
+    if (strncmp(dat.type, TRL, 4)==0){
+      header_offset = dat.next_offset;
+      break;
+    }
+    // any other kind of block, stop looking
+    if (dat.type[3]=='*'
+      && (strncmp(dat.type, DAT, 4)==0
+      || strncmp(dat.type, NOD, 4)==0
+      || strncmp(dat.type, FRE, 4)==0)){
+      header_offset = 0;
+      break;
+    }
+    len-=BLOCK_SIZE;
+  }
+
+  // no block header?
+  assert(header_offset>=0);
 
   lseek(fd, header_offset, SEEK_SET);
   union{
