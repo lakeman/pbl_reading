@@ -48,17 +48,6 @@ enum pbtype{
   pbvalue_byte
 };
 
-struct pb_datetime{
-  uint32_t millisecond;
-  uint16_t year;
-  uint8_t month;
-  uint8_t day;
-  uint8_t hour;
-  uint8_t minute;
-  uint8_t second;
-  uint8_t day_of_week;
-};
-
 struct pbfile_header{
   uint16_t compiler_version;
   uint16_t format_version;
@@ -74,75 +63,9 @@ struct pbfile_header{
 
 struct pbtable_info{
   uint32_t offset;
+// TODO define structure type enum?
   uint16_t structure_type;
   uint16_t count;
-};
-
-struct pbprop_ref{
-  uint32_t name_offset;
-  uint16_t prop_number;
-  uint16_t type;
-};
-
-struct pbmethod_ref{
-  uint16_t method_number;
-  uint16_t type;
-  uint32_t name_offset;
-};
-
-struct pbcreate_ref{
-  uint32_t name_offset;
-  uint16_t type;
-  uint16_t flags;
-};
-
-struct pbext_reference{
-  uint32_t name_offset;
-  uint16_t unnamed1;
-  uint16_t system_type;
-  uint16_t type;
-  uint16_t unnamed2;
-};
-
-struct pbarray_dimension{
-  int32_t lower;
-  int32_t upper;
-};
-
-struct pbarray_values{
-  uint16_t unnamed1;
-  uint16_t type;
-  uint32_t unnamed2;
-  uint32_t unnamed3;
-  uint16_t unnamed4;
-  uint16_t dimensions;
-  uint32_t unnamed5;
-  uint32_t unnamed6;
-  uint32_t unnamed7;
-  uint32_t unnamed8;
-};
-
-enum indirect_type{
-  indirect_name=1,
-  indirect_args,
-  indirect_nargs,
-  indirect_value,
-  indirect_eoseq,
-  indirect_dims
-};
-
-struct pbindirect_arg{
-  uint32_t expression_offset;
-  uint16_t indirect_type;
-  uint16_t unnamed2;
-};
-
-struct pbindirect_func{
-  uint32_t name_offset;
-  uint32_t args_offset;
-  uint16_t arg_count;
-  uint16_t unnamed1;
-  uint32_t unnamed2;
 };
 
 struct pbvalue{
@@ -157,25 +80,6 @@ struct pbtype_def{
   uint32_t array_dimensions;
   uint32_t name_offset;
   struct pbvalue value;
-};
-
-struct pbarg_def{
-  uint32_t name_offset;
-  uint32_t array_dimensions;
-  uint16_t type;
-  uint16_t flags;
-};
-
-struct pb_decimal{
-  uint8_t magnitude[14];
-  uint8_t sign;
-  uint8_t exponent;
-};
-
-struct pb_old_decimal{
-  uint8_t sign;
-  uint8_t exponent;
-  uint8_t magnitude[10];
 };
 
 struct pbtype_header{
@@ -266,6 +170,135 @@ struct pbindirect_ref{
 struct pbdebug_line_num{
   uint16_t line_number;
   uint16_t pcode_offset;
+};
+
+
+
+
+// structures that might appear within a data table;
+struct pb_datetime{
+  uint32_t millisecond;
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t second;
+  uint8_t day_of_week;
+};
+
+struct pbprop_ref{
+  uint32_t name_offset;
+  uint16_t prop_number;
+  uint16_t type;
+};
+
+struct pbmethod_ref{
+  uint16_t method_number;
+  uint16_t type;
+  uint32_t name_offset;
+};
+
+struct pbcreate_ref{
+  uint32_t name_offset;
+  uint16_t type;
+  uint16_t flags;
+};
+
+struct pbext_reference{
+  uint32_t name_offset;
+  uint16_t unnamed1;
+  uint16_t system_type;
+  uint16_t type;
+  uint16_t unnamed2;
+};
+
+struct pbarray_dimension{
+  int32_t lower;
+  int32_t upper;
+};
+
+struct pbarray_values{
+  uint16_t unnamed1;
+  uint16_t type;
+  uint32_t unnamed2;
+  uint32_t unnamed3;
+  uint16_t unnamed4;
+  uint16_t dimensions;
+  uint32_t unnamed5;
+  uint32_t unnamed6;
+  uint32_t unnamed7;
+  uint32_t unnamed8;
+};
+
+enum indirect_type{
+  indirect_name=1,
+  indirect_args,
+  indirect_nargs,
+  indirect_value,
+  indirect_eoseq,
+  indirect_dims
+};
+
+struct pbindirect_arg{
+  uint32_t expression_offset;
+  uint16_t indirect_type;
+  uint16_t unnamed2;
+};
+
+struct pbindirect_func{
+  uint32_t name_offset;
+  uint32_t args_offset;
+  uint16_t arg_count;
+  uint16_t unnamed1;
+  uint32_t unnamed2;
+};
+
+
+struct pbarg_def{
+  uint32_t name_offset;
+  uint32_t array_dimensions;
+  uint16_t type;
+  uint16_t flags;
+};
+
+struct pb_decimal{
+  uint8_t magnitude[14];
+  uint8_t sign;
+  uint8_t exponent;
+};
+
+struct pb_old_decimal{
+  uint8_t sign;
+  uint8_t exponent;
+  uint8_t magnitude[10];
+};
+
+enum fetch_direction{
+  fetch_next=1,
+  fetch_first,
+  fetch_prior,
+  fetch_last,
+};
+
+struct pb_sql{
+  uint32_t type;
+  uint32_t unnamed1;
+  // the sql statement is defined in another pb_sql struct here (what a waste of space...)
+  uint32_t related_sql_offset;
+  uint32_t cursor_name_offset;
+  // list of start, end positions within the sql string, where a constant can be overridden with a bound input parameter
+  uint32_t bind_list_offset;
+  uint32_t unnamed2;
+  // raw sql string, with constant values for bound input parameters
+  uint32_t sql_offset;
+  uint32_t unnamed3;
+  uint32_t unnamed4;
+  uint32_t fetch_direction;
+  uint32_t input_count;
+  uint32_t output_count;
+  uint32_t unnamed5;
+  uint32_t unnamed6;
 };
 
 #pragma pack(pop)

@@ -1043,6 +1043,13 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	fprintf(fd, "%04x_%d!", inst->args[i+1], inst->args[i]);
 	break;
 
+      case ARG_CLOSE:
+	i = (int)(*(++tokens));
+	assert(i < inst->definition->args);
+	if (inst->args[i] == 0)
+	  fprintf(fd, " CLOSE");
+	break;
+
       case OPERATOR:{
 	const char *op=NULL;
 	switch(inst->definition->operation){
@@ -1084,6 +1091,8 @@ static void printf_instruction(FILE *fd, struct disassembly *disassembly, struct
 	  fputs("dynamic ", fd);
       }break;
 
+      case RES_METHOD:
+      // TODO look up system method names if the name offset is zero in the resource
       case RES:{
 	i=(int)(*(++tokens));
 	assert(i+1 < inst->definition->args);
@@ -1210,6 +1219,20 @@ void printf_case(FILE *fd, struct disassembly *disassembly, struct instruction *
       fputs(", ", fd);
       printf_case(fd, disassembly, inst->stack[0]);
       return;
+
+    case OP_AND:{
+      struct instruction *lhs = inst->stack[1];
+      struct instruction *rhs = inst->stack[0];
+      if (lhs->definition->operation == OP_LE
+	&& rhs->definition->operation == OP_GE){
+	lhs = lhs->stack[1];
+	rhs = rhs->stack[1];
+	printf_instruction(fd, disassembly, lhs, 0);
+	fputs(" to ", fd);
+	printf_instruction(fd, disassembly, rhs, 0);
+	return;
+      }
+    }
 
     default:
       break;

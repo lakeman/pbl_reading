@@ -202,6 +202,10 @@ static const char *get_indirect_func(struct class_group_private *class_group, co
 }
 
 const char *get_table_resource(struct class_group_private *class_group, struct data_table *table, uint32_t offset){
+  if (offset & 0x80000000){
+    table = &class_group->main_table;
+    offset = offset & ~0x80000000;
+  }
   const void *ptr = get_table_ptr(class_group, table, offset);
   if (!ptr)
     return NULL;
@@ -261,7 +265,27 @@ const char *get_table_resource(struct class_group_private *class_group, struct d
       }
     }
 
-    // case 9: sql...
+    case 9:{
+      const struct pb_sql *ref = (struct pb_sql *)ptr;
+      const char *sql = get_table_string(class_group, table, ref->sql_offset);
+      if (sql)
+	return sql;
+      if (ref->related_sql_offset)
+	return get_table_resource(class_group, table, ref->related_sql_offset);
+      if (ref->cursor_name_offset!=0xFFFF)
+	return get_table_string(class_group, table, ref->cursor_name_offset); // "dynamic" ??
+      switch(ref->fetch_direction){
+	case fetch_next:
+	  return "fetch next";
+	case fetch_first:
+	  return "fetch first";
+	case fetch_prior:
+	  return "fetch prior";
+	case fetch_last:
+	  return "fetch last";
+      }
+      return "";
+    }
 
     case 12:{ // property reference
       const struct pbprop_ref *ref = (struct pbprop_ref *)ptr;
@@ -269,7 +293,7 @@ const char *get_table_resource(struct class_group_private *class_group, struct d
       if (name)
 	return name;
       else
-	return pool_sprintf(class_group->pool, "prop_%u", ref->prop_number);
+	return pool_sprintf(class_group->pool, "%s_prop_%u", get_type_name(class_group, ref->type), ref->prop_number);
     }
     case 13:{ // method reference
       const struct pbmethod_ref *ref = (struct pbmethod_ref *)ptr;
@@ -277,7 +301,7 @@ const char *get_table_resource(struct class_group_private *class_group, struct d
       if (name)
 	return name;
       else
-	return pool_sprintf(class_group->pool, "method_%u", ref->method_number);
+	return pool_sprintf(class_group->pool, "%s_method_%u", get_type_name(class_group, ref->type), ref->method_number);
     }
     case 16:
       return get_indirect_arg_name(class_group, ptr);
@@ -1041,6 +1065,9 @@ struct class_group *class_parse(struct lib_entry *entry){
 	script_def->pub.external_name = get_table_string(class_group, &class_group->function_name_table, script_headers[k].alias_offset);
 	script_def->pub.return_type = get_type_name(class_group, script_headers[k].return_type);
 	script_def->pub.access = access_names[(script_headers[k].flags>>12)&3];
+	// TODO use a lookup table for these constants
+	if (script_headers[k].event_id !=0 && script_headers[k].event_id != 0xFFFF)
+	  script_def->pub.event_type = pool_sprintf(class_group->pool, "pbm_event_%u", script_headers[k].event_id);
 	script_def->pub.event = (script_headers[k].flags & 0x0100)?1:0;
 	script_def->pub.hidden = (script_headers[k].more_flags & 1)?1:0;
 	script_def->pub.system = (script_headers[k].flags & 0x0200)?1:0;
