@@ -830,7 +830,7 @@ struct class_group *class_parse(struct lib_entry *entry){
 
   debug_type_names("globals", class_group, &class_group->global_types);
 
-  if (class_group->type_list.count>0 && DEBUG_PARSE){
+  if (IFDEBUG(PARSE) && class_group->type_list.count>0){
     for (i=0;i<class_group->ext_ref_count;i++){
       DEBUGF(PARSE, "External ref[%u] [%04x, %04x (%s), %04x (%s), %04x] %s", i,
 	class_group->external_refs[i].unnamed1,
@@ -898,7 +898,7 @@ struct class_group *class_parse(struct lib_entry *entry){
       for (k=0;k<count;k++){
 	enumeration->values[k].name = get_table_string(class_group, &class_group->enum_values.table, values[k].name_offset);
 	enumeration->values[k].value = values[k].value;
-	DEBUGF(PARSE, " - %s! = %u [%04x]", enumeration->values[k].name, values[k].value, values[k].unnamed);
+	DEBUGF(PARSE, "   %s! = %u [%04x]", enumeration->values[k].name, values[k].value, values[k].unnamed);
       }
 
     }else if(class_group->type_headers[i].flags == 0x85){

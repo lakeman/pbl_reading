@@ -1249,7 +1249,7 @@ void printf_case(FILE *fd, struct disassembly *disassembly, struct instruction *
 }
 
 static struct statement * printf_statement(FILE *fd, struct disassembly *disassembly, struct statement *statement){
-  // special cases;
+  // special cases, mostly syntactic sugar;
   switch(statement->type){
     case exception_try:      fputs("try;", fd); break;
     case exception_end_try:  fputs("end try;", fd); break;
@@ -1305,15 +1305,16 @@ static struct statement * printf_statement(FILE *fd, struct disassembly *disasse
     case for_init:{
       struct statement *incr = statement->next->next;
       struct statement *cmp = incr->next;
-      // TODO for [var] = [init] to [end] [step [N]]
-      // for now, C style;
-      fputs("for(", fd);
+      fputs("for ", fd);
+      // TODO without the ';'
       printf_instruction(fd, disassembly, statement->end, 0);
-      fputc(' ', fd);
-      printf_instruction(fd, disassembly, cmp->end->stack[0], 0);
+      fputs(" to ", fd);
+      printf_instruction(fd, disassembly, cmp->end->stack[0]->stack[1], 0);
+      if (incr->end->definition->operation == OP_ASSIGNADD){
+	fputs(" step ", fd);
+	printf_instruction(fd, disassembly, incr->end->stack[0], 0);
+      }
       fputs("; ", fd);
-      printf_instruction(fd, disassembly, incr->end, 0);
-      fputc(')', fd);
       return cmp->next;
     }break;
     case mem_append:{
