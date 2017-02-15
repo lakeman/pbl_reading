@@ -686,9 +686,12 @@ static void init_values(struct class_group_private *class_group, struct data_tab
 }
 
 // not all type lists are variables
-static struct variable_definition** type_defs_to_variables(struct class_group_private *class_group, struct type_defs *type_defs){
+static struct variable_definition** type_defs_to_variables(struct class_group_private *class_group, struct type_defs *type_defs, struct data_table *resources){
   if (type_defs->count==0)
     return NULL;
+
+  if (!resources)
+    resources = &type_defs->table;
 
   struct variable_definition **pointers = pool_alloc_array(class_group->pool, struct variable_definition*, type_defs->count+1);
   struct variable_def_private *variables = pool_alloc_array(class_group->pool, struct variable_def_private, type_defs->count);
@@ -715,7 +718,7 @@ static struct variable_definition** type_defs_to_variables(struct class_group_pr
       variables[i].pub.dimensions = NULL;
     }
 
-    init_values(class_group, &type_defs->table, &variables[i]);
+    init_values(class_group, resources, &variables[i]);
   }
   pointers[type_defs->count] = NULL;
   return pointers;
@@ -826,7 +829,7 @@ struct class_group *class_parse(struct lib_entry *entry){
   read_type_defs(entry, class_group, &class_group->type_list);
 
   class_group->pub.global_variable_count = class_group->global_types.count;
-  class_group->pub.global_variables = type_defs_to_variables(class_group, &class_group->global_types);
+  class_group->pub.global_variables = type_defs_to_variables(class_group, &class_group->global_types, NULL);
 
   debug_type_names("globals", class_group, &class_group->global_types);
 
@@ -1008,7 +1011,7 @@ struct class_group *class_parse(struct lib_entry *entry){
       read_expecting(entry, expect5, 3);
       read_type_defs(entry, class_group, &class_def->instance_variables);
       class_def->pub.instance_variable_count = class_def->instance_variables.count;
-      class_def->pub.instance_variables = type_defs_to_variables(class_group, &class_def->instance_variables);
+      class_def->pub.instance_variables = type_defs_to_variables(class_group, &class_def->instance_variables, NULL);
       debug_type_names("instance variables", class_group, &class_def->instance_variables);
       DEBUGF(PARSE, "All initial instance values");
       read_type_array(entry, class_group, class_def->instance_values, cls_header->variable_count);
@@ -1055,7 +1058,7 @@ struct class_group *class_parse(struct lib_entry *entry){
 	    script_def->body = &implementations[m];
 	    script_def->pub.implemented = 1;
 	    script_def->pub.local_variable_count = script_def->body->local_variables.count;
-	    script_def->pub.local_variables = type_defs_to_variables(class_group, &script_def->body->local_variables);
+	    script_def->pub.local_variables = type_defs_to_variables(class_group, &script_def->body->local_variables, &script_def->body->resources);
 	  }
 	}
 
