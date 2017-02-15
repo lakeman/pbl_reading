@@ -501,7 +501,10 @@ find_dest:
 	continue;
     }
 
-    if (ptr->type == jump_goto && ptr->branch->end->definition->id == SM_RETURN_0){
+    if (ptr->type == jump_goto
+    && ptr->branch->end->definition->id == SM_RETURN_0
+    && ptr->prev
+    && ptr->prev->end->definition->id == SM_STORE_RETURN_VAL_1){
       ptr->type = generated;
       ptr->branch->classified_count++;
     }
