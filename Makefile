@@ -1,6 +1,6 @@
-CC=clang-3.8
-LDFLAGS=`icu-config --ldflags`
-CFLAGS=-g -O3 -flto -Werror -Wall -Wextra -Werror=format-security `icu-config --cflags`
+CC=clang
+LDFLAGS=`pkg-config --libs --cflags icu-uc icu-io`
+CFLAGS=-g -O3 -flto -Werror -Wall -Wextra -Werror=format-security
 
 all:	pb_thingy
 
