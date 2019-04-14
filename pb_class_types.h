@@ -19,6 +19,7 @@
 #define PB115 321
 #define PB120 325
 #define PB125 333
+#define PB170 335
 //PocketBuilder
 #define PK20 175
 #define PK25 188

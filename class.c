@@ -781,6 +781,11 @@ static void read_expecting(struct lib_entry *entry, const uint16_t *expect, unsi
   assert(memcmp(expect, data, sizeof(data))==0);
 }
 
+static void read_ignore(struct lib_entry *entry, unsigned count){
+  uint8_t data[count];
+  assert(lib_entry_read(entry, data, sizeof(data))==sizeof(data));
+}
+
 struct class_group *class_parse(struct lib_entry *entry){
   unsigned i;
   struct pool *pool = pool_create();
@@ -796,6 +801,9 @@ struct class_group *class_parse(struct lib_entry *entry){
 
   assert(class_group->header.format_version == 3);
   assert(class_group->header.compiler_version >= PB60);
+
+  if (class_group->header.compiler_version>=PB170)
+    read_ignore(entry, 8);
 
   read_type(entry, class_group->ext_ref_count);
   if (class_group->ext_ref_count){
