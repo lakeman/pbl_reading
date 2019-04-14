@@ -234,6 +234,7 @@ extern struct pcode_def *PB90_opcodes[];
 extern struct pcode_def *PB100_opcodes[];
 extern struct pcode_def *PB105_opcodes[];
 extern struct pcode_def *PB120_opcodes[];
+extern struct pcode_def *PB150_opcodes[];
 
 extern unsigned PB50_maxcode;
 extern unsigned PB80_maxcode;
@@ -241,6 +242,7 @@ extern unsigned PB90_maxcode;
 extern unsigned PB100_maxcode;
 extern unsigned PB105_maxcode;
 extern unsigned PB120_maxcode;
+extern unsigned PB150_maxcode;
 
 // this should probably be in a different header....
 struct disassembly *disassemble(struct class_group *group, struct class_definition *class_def, struct script_definition *script);

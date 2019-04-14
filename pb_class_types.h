@@ -19,6 +19,7 @@
 #define PB115 321
 #define PB120 325
 #define PB125 333
+#define PB150 334
 #define PB170 335
 //PocketBuilder
 #define PK20 175
@@ -46,7 +47,8 @@ enum pbtype{
   pbvalue_char,
   pbvalue_objhandle,	// undocumented
   pbvalue_longlong,
-  pbvalue_byte
+  pbvalue_byte,
+  pbvalue_longptr
 };
 
 struct pbfile_header{

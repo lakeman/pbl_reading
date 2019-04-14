@@ -486,6 +486,7 @@ const char *get_type_name(struct class_group_private *class_group, uint16_t type
     case pbvalue_objhandle:	return "objhandle";
     case pbvalue_longlong:	return "longlong";
     case pbvalue_byte:		return "byte";
+    case pbvalue_longptr:	return "longptr";
   }
   return "[UNKNOWN]";
 }
@@ -600,6 +601,7 @@ const char *get_value(struct class_group_private *class_group, struct data_table
     case pbvalue_blob:
     case pbvalue_objhandle:
     case pbvalue_placeholder:
+    case pbvalue_longptr:
       return NULL;
     case pbvalue_cursor:
     case pbvalue_procedure:

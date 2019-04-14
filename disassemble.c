@@ -683,8 +683,9 @@ struct disassembly *disassemble(struct class_group *group, struct class_definiti
       CODE(PB90);
       CODE(PB100);
       CODE(PB105);
-      default:
       CODE(PB120);
+      default:
+      CODE(PB150);
 #undef CODE
     }
 

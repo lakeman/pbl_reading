@@ -98,6 +98,12 @@ struct pcode_def *PB120_opcodes[] = {
 };
 #undef PBVERSION
 
+#define PBVERSION PB150
+struct pcode_def *PB150_opcodes[] = {
+#include "opcodes.inc"
+};
+#undef PBVERSION
+
 #define NELS(A) (sizeof (A) / sizeof *(A))
 
 unsigned PB50_maxcode = NELS(PB50_opcodes);
@@ -106,4 +112,5 @@ unsigned PB90_maxcode = NELS(PB90_opcodes);
 unsigned PB100_maxcode = NELS(PB100_opcodes);
 unsigned PB105_maxcode = NELS(PB105_opcodes);
 unsigned PB120_maxcode = NELS(PB120_opcodes);
+unsigned PB150_maxcode = NELS(PB150_opcodes);
 
